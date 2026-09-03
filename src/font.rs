@@ -103,16 +103,16 @@ impl FontManager {
 }
 
 #[inline(always)]
-fn blend_alpha(bg: u32, fg: u32, a: u8) -> u32 {
-    if a == 255 {
+fn blend_alpha(bg: u32, fg: u32, alpha: u8) -> u32 {
+    if alpha == 255 {
         return fg;
     }
-    let alpha = a as u32;
-    let inv = 255 - alpha;
+    let a = alpha as u32;
+    let inv = 255 - a;
 
-    let r = (((fg >> 16) & 0xFF) * alpha + ((bg >> 16) & 0xFF) * inv) / 255;
-    let g = (((fg >> 8) & 0xFF) * alpha + ((bg >> 8) & 0xFF) * inv) / 255;
-    let b = ((fg & 0xFF) * alpha + (bg & 0xFF) * inv) / 255;
+    let r = (((fg >> 16) & 0xFF) * a + ((bg >> 16) & 0xFF) * inv) / 255;
+    let g = (((fg >> 8) & 0xFF) * a + ((bg >> 8) & 0xFF) * inv) / 255;
+    let b = ((fg & 0xFF) * a + (bg & 0xFF) * inv) / 255;
 
     0xFF000000 | (r << 16) | (g << 8) | b
 }

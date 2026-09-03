@@ -1,6 +1,7 @@
 mod buffer;
 mod config;
 mod font;
+mod history;
 mod input;
 mod layout;
 mod renderer;
@@ -29,6 +30,7 @@ fn main() {
     let mut renderer = Renderer::new(window.clone());
     let mut buffer = EditorBuffer::new();
     let mut input = InputHandler::default();
+    let mut clipboard = arboard::Clipboard::new().ok();
     let mut active_cursor_icon = CursorIcon::Default;
 
     window.request_redraw();
@@ -44,6 +46,8 @@ fn main() {
 
                 let total_lines = buffer.text().len_lines();
                 let layout = renderer.layout(total_lines);
+                let cw = renderer.font_manager.char_width;
+                let lh = renderer.font_manager.line_height;
 
                 match event {
                     WindowEvent::RedrawRequested => renderer.render(&buffer),
@@ -53,6 +57,9 @@ fn main() {
                         buffer.fit_view(l.visible_lines, l.visible_cols);
                         window.request_redraw();
                     }
+                    WindowEvent::ModifiersChanged(modifiers) => {
+                        input.modifiers = modifiers.state();
+                    }
                     WindowEvent::CursorMoved { position, .. } => {
                         let desired_icon = input.desired_cursor_icon(&layout);
                         if active_cursor_icon != desired_icon {
@@ -60,13 +67,18 @@ fn main() {
                             window.set_cursor_icon(desired_icon);
                         }
 
-                        if input.handle_cursor_move(position.x, position.y, &mut buffer, &layout) {
+                        if input.handle_cursor_move(
+                            position.x,
+                            position.y,
+                            &mut buffer,
+                            &layout,
+                            cw,
+                            lh,
+                        ) {
                             window.request_redraw();
                         }
                     }
                     WindowEvent::MouseInput { state, button, .. } => {
-                        let cw = renderer.font_manager.char_width;
-                        let lh = renderer.font_manager.line_height;
                         if input.handle_mouse_click(
                             state,
                             button,
@@ -80,16 +92,18 @@ fn main() {
                             window.request_redraw();
                         }
                     }
-                    WindowEvent::CursorLeft { .. } => input.drag = input::DragState::None,
+                    WindowEvent::Focused(is_focused) => {
+                        if !is_focused {
+                            input.drag = input::DragState::None;
+                        }
+                    }
                     WindowEvent::MouseWheel { delta, .. } => {
-                        let cw = renderer.font_manager.char_width;
-                        let lh = renderer.font_manager.line_height;
                         if input.handle_mouse_wheel(delta, &mut buffer, &layout, cw, lh) {
                             window.request_redraw();
                         }
                     }
                     WindowEvent::KeyboardInput { event, .. } => {
-                        if input.handle_key(&event, &mut buffer, &layout) {
+                        if input.handle_key(&event, &mut buffer, &layout, &mut clipboard) {
                             window.request_redraw();
                         }
                     }

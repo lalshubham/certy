@@ -1,8 +1,9 @@
 use crate::buffer::EditorBuffer;
 use crate::config::TOP_PADDING;
-use crate::layout::{calc_horiz_thumb, calc_vert_thumb, ViewportLayout};
+use crate::layout::{calc_thumb, ViewportLayout};
+use arboard::Clipboard;
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta};
-use winit::keyboard::{Key, NamedKey};
+use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::CursorIcon;
 
 #[derive(Default, PartialEq)]
@@ -17,6 +18,7 @@ pub enum DragState {
         start_x: f64,
         start_col: usize,
     },
+    SelectingText,
 }
 
 #[derive(Default)]
@@ -26,17 +28,18 @@ pub struct InputHandler {
     pub mouse_y: f64,
     pub scroll_accum_y: f64,
     pub scroll_accum_x: f64,
+    pub modifiers: ModifiersState,
 }
 
 impl InputHandler {
     pub fn desired_cursor_icon(&self, layout: &ViewportLayout) -> CursorIcon {
+        if self.drag == DragState::SelectingText {
+            return CursorIcon::Text;
+        }
         if self.drag != DragState::None {
             return CursorIcon::Default;
         }
-
-        let mx = self.mouse_x as usize;
-        let my = self.mouse_y as usize;
-
+        let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
         if my < layout.content_bottom && mx >= layout.code_x && mx < layout.content_right {
             CursorIcon::Text
         } else {
@@ -50,17 +53,35 @@ impl InputHandler {
         y: f64,
         buffer: &mut EditorBuffer,
         layout: &ViewportLayout,
+        char_w: usize,
+        line_h: usize,
     ) -> bool {
         self.mouse_x = x;
         self.mouse_y = y;
 
         match self.drag {
+            DragState::SelectingText => {
+                let mx = self.mouse_x.max(0.0) as usize;
+                let my = self.mouse_y.max(0.0) as usize;
+                if line_h > 0 && char_w > 0 {
+                    let row = my.saturating_sub(TOP_PADDING) / line_h;
+                    let target_line = buffer.scroll_line + row;
+                    let target_col = if mx >= layout.code_x {
+                        buffer.scroll_col + (mx - layout.code_x) / char_w
+                    } else {
+                        0
+                    };
+                    buffer.set_cursor_at(target_line, target_col);
+                    buffer.fit_view(layout.visible_lines, layout.visible_cols);
+                    return true;
+                }
+            }
             DragState::Vertical {
                 start_y,
                 start_line,
             } => {
                 let total = buffer.text().len_lines();
-                if let Some((_, th)) = calc_vert_thumb(
+                if let Some((_, th)) = calc_thumb(
                     total,
                     layout.visible_lines,
                     buffer.scroll_line,
@@ -81,15 +102,11 @@ impl InputHandler {
             }
             DragState::Horizontal { start_x, start_col } => {
                 let max_c = buffer.max_line_len;
-                let bar_start_x = layout.gutter_width + 1;
-                if let Some((_, tw)) = calc_horiz_thumb(
-                    max_c,
-                    layout.visible_cols,
-                    buffer.scroll_col,
-                    bar_start_x,
-                    layout.content_right,
-                ) {
-                    let travel = (layout.content_right.saturating_sub(bar_start_x + tw)) as f64;
+                let track_w = layout.content_right.saturating_sub(layout.bar_start_x);
+                if let Some((_, tw)) =
+                    calc_thumb(max_c, layout.visible_cols, buffer.scroll_col, track_w)
+                {
+                    let travel = track_w.saturating_sub(tw) as f64;
                     if travel > 0.0 {
                         let max_s = (max_c - layout.visible_cols) as f64;
                         let target = (start_col as f64
@@ -123,16 +140,20 @@ impl InputHandler {
         }
 
         if state == ElementState::Released {
+            if self.drag == DragState::SelectingText
+                && buffer.selection_anchor == Some(buffer.cursor_char)
+            {
+                buffer.selection_anchor = None;
+            }
             self.drag = DragState::None;
             return false;
         }
 
         let total = buffer.text().len_lines();
         let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
-        let bar_start_x = layout.gutter_width + 1;
 
         if mx >= layout.content_right && mx < screen_w && my < layout.content_bottom {
-            if let Some((ty, th)) = calc_vert_thumb(
+            if let Some((ty, th)) = calc_thumb(
                 total,
                 layout.visible_lines,
                 buffer.scroll_line,
@@ -155,24 +176,24 @@ impl InputHandler {
             }
         } else if my >= layout.content_bottom
             && my < screen_h
-            && mx >= bar_start_x
+            && mx >= layout.bar_start_x
             && mx < layout.content_right
         {
-            if let Some((tx, tw)) = calc_horiz_thumb(
+            let track_w = layout.content_right.saturating_sub(layout.bar_start_x);
+            if let Some((tx_offset, tw)) = calc_thumb(
                 buffer.max_line_len,
                 layout.visible_cols,
                 buffer.scroll_col,
-                bar_start_x,
-                layout.content_right,
+                track_w,
             ) {
+                let tx = layout.bar_start_x + tx_offset;
                 if mx >= tx && mx < tx + tw {
                     self.drag = DragState::Horizontal {
                         start_x: self.mouse_x,
                         start_col: buffer.scroll_col,
                     };
                 } else {
-                    let track_w = (layout.content_right - bar_start_x) as f64;
-                    let ratio = ((mx - bar_start_x) as f64 / track_w).clamp(0.0, 1.0);
+                    let ratio = ((mx - layout.bar_start_x) as f64 / track_w as f64).clamp(0.0, 1.0);
                     buffer.scroll_col =
                         (ratio * (buffer.max_line_len - layout.visible_cols) as f64) as usize;
                     self.drag = DragState::Horizontal {
@@ -182,20 +203,23 @@ impl InputHandler {
                     return true;
                 }
             }
-        } else {
-            self.drag = DragState::None;
-            if my < layout.content_bottom && mx < layout.content_right && line_h > 0 && char_w > 0 {
-                let click_row = my.saturating_sub(TOP_PADDING) / line_h;
-                let target_line = buffer.scroll_line + click_row;
-                let target_col = if mx >= layout.code_x {
-                    buffer.scroll_col + (mx - layout.code_x) / char_w
-                } else {
-                    0
-                };
-                buffer.set_cursor_at(target_line, target_col);
-                buffer.fit_view(layout.visible_lines, layout.visible_cols);
-                return true;
-            }
+        } else if my < layout.content_bottom
+            && mx < layout.content_right
+            && line_h > 0
+            && char_w > 0
+        {
+            let row = my.saturating_sub(TOP_PADDING) / line_h;
+            let target_line = buffer.scroll_line + row;
+            let target_col = if mx >= layout.code_x {
+                buffer.scroll_col + (mx - layout.code_x) / char_w
+            } else {
+                0
+            };
+            buffer.set_cursor_at(target_line, target_col);
+            buffer.selection_anchor = Some(buffer.cursor_char);
+            self.drag = DragState::SelectingText;
+            buffer.fit_view(layout.visible_lines, layout.visible_cols);
+            return true;
         }
         false
     }
@@ -223,10 +247,8 @@ impl InputHandler {
             MouseScrollDelta::PixelDelta(pos) => {
                 self.scroll_accum_y += pos.y;
                 self.scroll_accum_x += pos.x;
-
                 let lines = (self.scroll_accum_y / line_h as f64) as i32;
                 let cols = (self.scroll_accum_x / char_w as f64) as i32;
-
                 if lines != 0 {
                     let max_l = buffer
                         .text()
@@ -252,9 +274,63 @@ impl InputHandler {
         event: &KeyEvent,
         buffer: &mut EditorBuffer,
         layout: &ViewportLayout,
+        clipboard: &mut Option<Clipboard>,
     ) -> bool {
         if event.state != ElementState::Pressed {
             return false;
+        }
+
+        if self.modifiers.control_key() {
+            match &event.logical_key {
+                Key::Character(c) if c.eq_ignore_ascii_case("c") => {
+                    if let Some(text) = buffer.selected_text() {
+                        if let Some(cb) = clipboard.as_mut() {
+                            let _ = cb.set_text(text);
+                        }
+                    }
+                    return false;
+                }
+                Key::Character(c) if c.eq_ignore_ascii_case("x") => {
+                    if let Some(text) = buffer.selected_text() {
+                        if let Some(cb) = clipboard.as_mut() {
+                            let _ = cb.set_text(text);
+                        }
+                        buffer.delete_selection();
+                        buffer.fit_view(layout.visible_lines, layout.visible_cols);
+                        return true;
+                    }
+                    return false;
+                }
+                Key::Character(c) if c.eq_ignore_ascii_case("v") => {
+                    if let Some(cb) = clipboard.as_mut() {
+                        if let Ok(text) = cb.get_text() {
+                            buffer.insert_str(&text);
+                            buffer.fit_view(layout.visible_lines, layout.visible_cols);
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+                Key::Character(c) if c.eq_ignore_ascii_case("z") => {
+                    if self.modifiers.shift_key() {
+                        buffer.redo();
+                    } else {
+                        buffer.undo();
+                    }
+                    buffer.fit_view(layout.visible_lines, layout.visible_cols);
+                    return true;
+                }
+                Key::Character(c) if c.eq_ignore_ascii_case("y") => {
+                    buffer.redo();
+                    buffer.fit_view(layout.visible_lines, layout.visible_cols);
+                    return true;
+                }
+                Key::Character(c) if c.eq_ignore_ascii_case("a") => {
+                    buffer.select_all();
+                    return true;
+                }
+                _ => {}
+            }
         }
 
         match &event.logical_key {
@@ -266,10 +342,12 @@ impl InputHandler {
             Key::Named(NamedKey::ArrowUp) => buffer.move_up(),
             Key::Named(NamedKey::ArrowDown) => buffer.move_down(),
             _ => {
-                if let Some(txt) = &event.text {
-                    for ch in txt.chars() {
-                        if !ch.is_control() {
-                            buffer.insert_char(ch);
+                if !self.modifiers.control_key() {
+                    if let Some(txt) = &event.text {
+                        for ch in txt.chars() {
+                            if !ch.is_control() {
+                                buffer.insert_char(ch);
+                            }
                         }
                     }
                 }

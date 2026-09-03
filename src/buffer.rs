@@ -1,11 +1,14 @@
+use crate::history::{EditAction, History};
 use ropey::Rope;
 
 pub struct EditorBuffer {
     text: Rope,
-    cursor_char: usize,
+    pub cursor_char: usize,
+    pub selection_anchor: Option<usize>,
     pub scroll_line: usize,
     pub scroll_col: usize,
     pub max_line_len: usize,
+    history: History,
 }
 
 impl EditorBuffer {
@@ -13,58 +16,173 @@ impl EditorBuffer {
         Self {
             text: Rope::new(),
             cursor_char: 0,
+            selection_anchor: None,
             scroll_line: 0,
             scroll_col: 0,
             max_line_len: 0,
+            history: History::new(),
+        }
+    }
+
+    pub fn selection_range(&self) -> Option<(usize, usize)> {
+        match self.selection_anchor {
+            Some(anchor) if anchor != self.cursor_char => {
+                Some((anchor.min(self.cursor_char), anchor.max(self.cursor_char)))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn selected_text(&self) -> Option<String> {
+        self.selection_range()
+            .map(|(start, end)| self.text.slice(start..end).to_string())
+    }
+
+    pub fn delete_selection(&mut self) -> bool {
+        if let Some((start, end)) = self.selection_range() {
+            let removed = self.text.slice(start..end).to_string();
+            self.text.remove(start..end);
+            self.cursor_char = start;
+            self.selection_anchor = None;
+            self.history.record(EditAction::Delete {
+                char_idx: start,
+                text: removed,
+            });
+            self.recompute_max_line_len();
+            true
+        } else {
+            false
         }
     }
 
     pub fn insert_char(&mut self, ch: char) {
+        self.delete_selection();
         self.text.insert_char(self.cursor_char, ch);
+        self.history.record(EditAction::Insert {
+            char_idx: self.cursor_char,
+            text: ch.to_string(),
+        });
         self.cursor_char += 1;
         self.recompute_max_line_len();
     }
 
+    pub fn insert_str(&mut self, text: &str) {
+        self.delete_selection();
+        self.text.insert(self.cursor_char, text);
+        let char_count = text.chars().count();
+        self.history.record(EditAction::Insert {
+            char_idx: self.cursor_char,
+            text: text.to_string(),
+        });
+        self.cursor_char += char_count;
+        self.recompute_max_line_len();
+    }
+
     pub fn delete_backwards(&mut self) {
-        if self.cursor_char > 0 {
+        if !self.delete_selection() && self.cursor_char > 0 {
             self.cursor_char -= 1;
+            let removed = self.text.char(self.cursor_char).to_string();
             self.text.remove(self.cursor_char..self.cursor_char + 1);
+            self.history.record(EditAction::Delete {
+                char_idx: self.cursor_char,
+                text: removed,
+            });
             self.recompute_max_line_len();
         }
     }
 
     pub fn delete_forward(&mut self) {
-        if self.cursor_char < self.text.len_chars() {
+        if !self.delete_selection() && self.cursor_char < self.text.len_chars() {
+            let removed = self.text.char(self.cursor_char).to_string();
             self.text.remove(self.cursor_char..self.cursor_char + 1);
+            self.history.record(EditAction::Delete {
+                char_idx: self.cursor_char,
+                text: removed,
+            });
+            self.recompute_max_line_len();
+        }
+    }
+
+    pub fn select_all(&mut self) {
+        if self.text.len_chars() > 0 {
+            self.selection_anchor = Some(0);
+            self.cursor_char = self.text.len_chars();
+        }
+    }
+
+    pub fn undo(&mut self) {
+        if let Some(action) = self.history.pop_undo() {
+            match action {
+                EditAction::Insert { char_idx, text } => {
+                    let count = text.chars().count();
+                    self.text.remove(char_idx..char_idx + count);
+                    self.cursor_char = char_idx;
+                    self.history
+                        .push_redo(EditAction::Insert { char_idx, text });
+                }
+                EditAction::Delete { char_idx, text } => {
+                    self.text.insert(char_idx, &text);
+                    self.cursor_char = char_idx + text.chars().count();
+                    self.history
+                        .push_redo(EditAction::Delete { char_idx, text });
+                }
+            }
+            self.selection_anchor = None;
+            self.recompute_max_line_len();
+        }
+    }
+
+    pub fn redo(&mut self) {
+        if let Some(action) = self.history.pop_redo() {
+            match action {
+                EditAction::Insert { char_idx, text } => {
+                    self.text.insert(char_idx, &text);
+                    self.cursor_char = char_idx + text.chars().count();
+                    self.history
+                        .push_undo(EditAction::Insert { char_idx, text });
+                }
+                EditAction::Delete { char_idx, text } => {
+                    let count = text.chars().count();
+                    self.text.remove(char_idx..char_idx + count);
+                    self.cursor_char = char_idx;
+                    self.history
+                        .push_undo(EditAction::Delete { char_idx, text });
+                }
+            }
+            self.selection_anchor = None;
             self.recompute_max_line_len();
         }
     }
 
     pub fn move_left(&mut self) {
+        self.selection_anchor = None;
         self.cursor_char = self.cursor_char.saturating_sub(1);
     }
 
     pub fn move_right(&mut self) {
+        self.selection_anchor = None;
         if self.cursor_char < self.text.len_chars() {
             self.cursor_char += 1;
         }
     }
 
     pub fn move_up(&mut self) {
+        self.selection_anchor = None;
         let (line, col) = self.cursor_pos();
         if line > 0 {
-            let target_line = line - 1;
-            let line_len = self.line_len(target_line);
-            self.cursor_char = self.text.line_to_char(target_line) + col.min(line_len);
+            let target = line - 1;
+            let len = self.line_len(target);
+            self.cursor_char = self.text.line_to_char(target) + col.min(len);
         }
     }
 
     pub fn move_down(&mut self) {
+        self.selection_anchor = None;
         let (line, col) = self.cursor_pos();
         if line + 1 < self.text.len_lines() {
-            let target_line = line + 1;
-            let line_len = self.line_len(target_line);
-            self.cursor_char = self.text.line_to_char(target_line) + col.min(line_len);
+            let target = line + 1;
+            let len = self.line_len(target);
+            self.cursor_char = self.text.line_to_char(target) + col.min(len);
         }
     }
 
@@ -74,10 +192,9 @@ impl EditorBuffer {
             self.cursor_char = 0;
             return;
         }
-        let clamped_line = target_line.min(total_lines - 1);
-        let max_line_col = self.line_len(clamped_line);
-        let clamped_col = target_col.min(max_line_col);
-        self.cursor_char = self.text.line_to_char(clamped_line) + clamped_col;
+        let line = target_line.min(total_lines - 1);
+        let col = target_col.min(self.line_len(line));
+        self.cursor_char = self.text.line_to_char(line) + col;
     }
 
     pub fn cursor_pos(&self) -> (usize, usize) {
@@ -95,11 +212,8 @@ impl EditorBuffer {
         }
         let slice = self.text.line(line_idx);
         let mut len = slice.len_chars();
-        if len > 0 && slice.char(len - 1) == '\n' {
+        while len > 0 && matches!(slice.char(len - 1), '\n' | '\r') {
             len -= 1;
-            if len > 0 && slice.char(len - 1) == '\r' {
-                len -= 1;
-            }
         }
         len
     }
@@ -110,7 +224,6 @@ impl EditorBuffer {
 
     pub fn fit_view(&mut self, vis_lines: usize, vis_cols: usize) {
         let (line, col) = self.cursor_pos();
-
         if vis_lines > 0 {
             if line < self.scroll_line {
                 self.scroll_line = line;
@@ -122,7 +235,6 @@ impl EditorBuffer {
                 self.scroll_line = max_scroll_line;
             }
         }
-
         if vis_cols > 0 {
             if col < self.scroll_col {
                 self.scroll_col = col;

@@ -13,3 +13,4 @@ winit = { version = "0.29", default-features = false, features = [
 softbuffer = "0.4"
 ropey = "1.6"
 fontdue = "0.9"
+arboard = "3.4"
