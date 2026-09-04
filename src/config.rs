@@ -9,10 +9,34 @@ pub const COLOR_SELECTION: u32 = 0xFF264F78;
 pub const COLOR_SCROLLBAR_TRACK: u32 = 0xFF141414;
 pub const COLOR_SCROLLBAR_THUMB: u32 = 0xFF424242;
 
-pub const FONT_SIZE: f32 = 18.0;
-pub const TOP_PADDING: usize = 20;
-pub const GUTTER_PADDING: usize = 16;
-pub const CODE_LEFT_MARGIN: usize = 16;
+pub const COLOR_TABBAR_BG: u32 = 0xFF181818;
+pub const COLOR_TAB_ACTIVE_BG: u32 = 0xFF1E1E1E;
+pub const COLOR_TAB_INACTIVE_BG: u32 = 0xFF222222;
+pub const COLOR_TAB_BORDER: u32 = 0xFF2B2B2B;
+pub const COLOR_TAB_TEXT_ACTIVE: u32 = 0xFFFFFFFF;
+pub const COLOR_TAB_TEXT_INACTIVE: u32 = 0xFF888888;
+pub const COLOR_TAB_CLOSE_HOVER: u32 = 0xFFE81123;
+
+pub const COLOR_SIDEBAR_BG: u32 = 0xFF181818;
+pub const COLOR_SIDEBAR_BORDER: u32 = 0xFF2B2B2B;
+pub const COLOR_SIDEBAR_ROW_HOVER: u32 = 0xFF2A2D2E;
+pub const COLOR_SIDEBAR_ROW_ACTIVE: u32 = 0xFF37373D;
+pub const COLOR_SIDEBAR_TEXT: u32 = 0xFFCCCCCC;
+
+pub const COLOR_MODAL_BG: u32 = 0xFF252526;
+pub const COLOR_MODAL_BORDER: u32 = 0xFF3F3F46;
+pub const COLOR_BTN_BG: u32 = 0xFF333333;
+pub const COLOR_BTN_HOVER: u32 = 0xFF454545;
+pub const COLOR_BTN_DANGER: u32 = 0xFF8B2525;
+
+pub const FONT_SIZE: f32 = 17.0;
+pub const TAB_BAR_HEIGHT: usize = 34;
+pub const SIDEBAR_INITIAL_WIDTH: usize = 230;
+pub const SIDEBAR_MIN_WIDTH: usize = 185;
+pub const SIDEBAR_ROW_HEIGHT: usize = 26;
+pub const TOP_PADDING: usize = 12;
+pub const GUTTER_PADDING: usize = 12;
+pub const CODE_LEFT_MARGIN: usize = 14;
 pub const SCROLLBAR_THICKNESS: usize = 14;
 pub const MIN_THUMB_SIZE: usize = 28;
 

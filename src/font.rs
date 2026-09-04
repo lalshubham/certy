@@ -59,8 +59,8 @@ impl FontManager {
         &mut self,
         buf: &mut [u32],
         ch: char,
-        x: usize,
-        y: usize,
+        x: i32,
+        y: i32,
         screen_w: usize,
         screen_h: usize,
         color: u32,
@@ -75,8 +75,8 @@ impl FontManager {
         }
 
         let top =
-            (y + self.baseline_offset) as i32 - (glyph.metrics.height as i32 + glyph.metrics.ymin);
-        let left = x as i32 + glyph.metrics.xmin;
+            (y + self.baseline_offset as i32) - (glyph.metrics.height as i32 + glyph.metrics.ymin);
+        let left = x + glyph.metrics.xmin;
 
         for row in 0..glyph.metrics.height {
             let py = top + row as i32;

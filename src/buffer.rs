@@ -1,8 +1,13 @@
 use crate::history::{EditAction, History};
 use ropey::Rope;
+use std::fs::File;
+use std::io::{self, BufReader, BufWriter, Write};
+use std::path::{Path, PathBuf};
 
 pub struct EditorBuffer {
     text: Rope,
+    pub file_path: Option<PathBuf>,
+    pub is_modified: bool,
     pub cursor_char: usize,
     pub selection_anchor: Option<usize>,
     pub scroll_line: usize,
@@ -15,6 +20,8 @@ impl EditorBuffer {
     pub fn new() -> Self {
         Self {
             text: Rope::new(),
+            file_path: None,
+            is_modified: false,
             cursor_char: 0,
             selection_anchor: None,
             scroll_line: 0,
@@ -22,6 +29,40 @@ impl EditorBuffer {
             max_line_len: 0,
             history: History::new(),
         }
+    }
+
+    pub fn load_file(&mut self, path: PathBuf) -> io::Result<()> {
+        let file = File::open(&path)?;
+        let text = Rope::from_reader(BufReader::new(file))?;
+        self.text = text;
+        self.file_path = Some(path);
+        self.is_modified = false;
+        self.cursor_char = 0;
+        self.selection_anchor = None;
+        self.scroll_line = 0;
+        self.scroll_col = 0;
+        self.history = History::new();
+        self.recompute_max_line_len();
+        Ok(())
+    }
+
+    pub fn save(&mut self, default_dir: Option<&Path>) -> io::Result<()> {
+        if self.file_path.is_none() {
+            let dir = default_dir
+                .map(|p| p.to_path_buf())
+                .or_else(|| std::env::current_dir().ok())
+                .unwrap_or_else(|| PathBuf::from("."));
+            self.file_path = Some(dir.join("untitled.txt"));
+        }
+        let path = self.file_path.as_ref().unwrap();
+        let file = File::create(path)?;
+        let mut writer = BufWriter::new(file);
+        for chunk in self.text.chunks() {
+            writer.write_all(chunk.as_bytes())?;
+        }
+        writer.flush()?;
+        self.is_modified = false;
+        Ok(())
     }
 
     pub fn selection_range(&self) -> Option<(usize, usize)> {
@@ -35,7 +76,7 @@ impl EditorBuffer {
 
     pub fn selected_text(&self) -> Option<String> {
         self.selection_range()
-            .map(|(start, end)| self.text.slice(start..end).to_string())
+            .map(|(s, e)| self.text.slice(s..e).to_string())
     }
 
     pub fn delete_selection(&mut self) -> bool {
@@ -44,6 +85,7 @@ impl EditorBuffer {
             self.text.remove(start..end);
             self.cursor_char = start;
             self.selection_anchor = None;
+            self.is_modified = true;
             self.history.record(EditAction::Delete {
                 char_idx: start,
                 text: removed,
@@ -63,6 +105,7 @@ impl EditorBuffer {
             text: ch.to_string(),
         });
         self.cursor_char += 1;
+        self.is_modified = true;
         self.recompute_max_line_len();
     }
 
@@ -75,6 +118,7 @@ impl EditorBuffer {
             text: text.to_string(),
         });
         self.cursor_char += char_count;
+        self.is_modified = true;
         self.recompute_max_line_len();
     }
 
@@ -87,6 +131,7 @@ impl EditorBuffer {
                 char_idx: self.cursor_char,
                 text: removed,
             });
+            self.is_modified = true;
             self.recompute_max_line_len();
         }
     }
@@ -99,6 +144,7 @@ impl EditorBuffer {
                 char_idx: self.cursor_char,
                 text: removed,
             });
+            self.is_modified = true;
             self.recompute_max_line_len();
         }
     }
@@ -128,6 +174,7 @@ impl EditorBuffer {
                 }
             }
             self.selection_anchor = None;
+            self.is_modified = true;
             self.recompute_max_line_len();
         }
     }
@@ -150,6 +197,7 @@ impl EditorBuffer {
                 }
             }
             self.selection_anchor = None;
+            self.is_modified = true;
             self.recompute_max_line_len();
         }
     }
@@ -165,20 +213,20 @@ impl EditorBuffer {
         }
     }
 
-    pub fn move_left(&mut self, selecting: bool) {
-        self.prepare_move(selecting);
+    pub fn move_left(&mut self, sel: bool) {
+        self.prepare_move(sel);
         self.cursor_char = self.cursor_char.saturating_sub(1);
     }
 
-    pub fn move_right(&mut self, selecting: bool) {
-        self.prepare_move(selecting);
+    pub fn move_right(&mut self, sel: bool) {
+        self.prepare_move(sel);
         if self.cursor_char < self.text.len_chars() {
             self.cursor_char += 1;
         }
     }
 
-    pub fn move_up(&mut self, selecting: bool) {
-        self.prepare_move(selecting);
+    pub fn move_up(&mut self, sel: bool) {
+        self.prepare_move(sel);
         let (line, col) = self.cursor_pos();
         if line > 0 {
             let target = line - 1;
@@ -187,8 +235,8 @@ impl EditorBuffer {
         }
     }
 
-    pub fn move_down(&mut self, selecting: bool) {
-        self.prepare_move(selecting);
+    pub fn move_down(&mut self, sel: bool) {
+        self.prepare_move(sel);
         let (line, col) = self.cursor_pos();
         if line + 1 < self.text.len_lines() {
             let target = line + 1;
