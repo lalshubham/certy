@@ -8,6 +8,7 @@ mod renderer;
 mod sidebar;
 mod tabs;
 
+use config::{WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH};
 use input::{ActionEvent, InputHandler};
 use renderer::Renderer;
 use sidebar::{MenuItem, Sidebar};
@@ -48,13 +49,12 @@ fn update_window_title(
     last_title: &mut String,
 ) {
     let title = if let Some(tab) = tabs.active_tab() {
-        let dirty = if tab.buffer.is_modified { "* " } else { "" };
         let path_str = if let Some(p) = &tab.buffer.file_path {
             to_full_path(p)
         } else {
             tab.title.clone()
         };
-        format!("{dirty}{path_str} - Certy")
+        format!("{path_str} - Certy")
     } else if let Some(root) = &sidebar.root_folder {
         format!("{} - Certy", to_full_path(root))
     } else {
@@ -78,6 +78,7 @@ fn main() {
         WindowBuilder::new()
             .with_title("Certy")
             .with_inner_size(LogicalSize::new(1024.0, 768.0))
+            .with_min_inner_size(LogicalSize::new(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT))
             .build(&event_loop)
             .expect("Failed to create window"),
     );

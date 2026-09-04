@@ -182,8 +182,8 @@ impl InputHandler {
                         if item_idx < MENU_ITEMS.len() {
                             sidebar.hovered_menu_item = Some(MENU_ITEMS[item_idx].0);
                         }
-                    } else if sidebar.root_folder.is_some() && cy > sidebar.menu_total_height() {
-                        let tree_y = cy - (sidebar.menu_total_height() + 1);
+                    } else if sidebar.root_folder.is_some() && cy >= sidebar.menu_total_height() {
+                        let tree_y = cy - sidebar.menu_total_height();
                         let node_idx = tree_y / SIDEBAR_ROW_HEIGHT;
                         if node_idx < sidebar.nodes.len() {
                             sidebar.hovered_tree_row = Some(node_idx);
@@ -418,8 +418,8 @@ impl InputHandler {
                         return ActionEvent::Menu(MENU_ITEMS[item_idx].0);
                     }
                 }
-                if sidebar.root_folder.is_some() && cy > sidebar.menu_total_height() {
-                    let tree_y = cy - (sidebar.menu_total_height() + 1);
+                if sidebar.root_folder.is_some() && cy >= sidebar.menu_total_height() {
+                    let tree_y = cy - sidebar.menu_total_height();
                     let node_idx = tree_y / SIDEBAR_ROW_HEIGHT;
                     if node_idx < sidebar.nodes.len() {
                         if sidebar.nodes[node_idx].is_dir {

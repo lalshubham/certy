@@ -69,7 +69,6 @@ pub fn calc_thumb(
         return None;
     }
     let ratio = (scroll as f64 / max_scroll as f64).clamp(0.0, 1.0);
-    let available = track_len.saturating_sub(thumb_size);
-    let offset = (ratio * available as f64) as usize;
+    let offset = (ratio * (track_len.saturating_sub(thumb_size)) as f64) as usize;
     Some((offset, thumb_size))
 }

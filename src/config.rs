@@ -29,6 +29,9 @@ pub const COLOR_BTN_BG: u32 = 0xFF333333;
 pub const COLOR_BTN_HOVER: u32 = 0xFF454545;
 pub const COLOR_BTN_DANGER: u32 = 0xFF8B2525;
 
+pub const WINDOW_MIN_WIDTH: f64 = 480.0;
+pub const WINDOW_MIN_HEIGHT: f64 = 260.0;
+
 pub const FONT_SIZE: f32 = 17.0;
 pub const TAB_BAR_HEIGHT: usize = 34;
 pub const SIDEBAR_INITIAL_WIDTH: usize = 230;

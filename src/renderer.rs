@@ -154,19 +154,6 @@ impl Renderer {
             COLOR_LINE_NUMBER_ACTIVE,
         );
 
-        if !sidebar.menu_expanded {
-            draw_solid_rect_i32(
-                &mut frame,
-                screen_w,
-                screen_h,
-                0,
-                menu_screen_y + TAB_BAR_HEIGHT as i32 - 1,
-                sidebar.width,
-                1,
-                COLOR_SIDEBAR_BORDER,
-            );
-        }
-
         if sidebar.menu_expanded {
             for (idx, (item, label)) in MENU_ITEMS.iter().enumerate() {
                 let item_screen_y =
@@ -191,27 +178,28 @@ impl Renderer {
                     &mut self.font_manager,
                     &mut frame,
                     label,
-                    24,
+                    12,
                     item_screen_y + row_offset_y as i32,
                     screen_w,
                     screen_h,
                     COLOR_SIDEBAR_TEXT,
                 );
             }
-            draw_solid_rect_i32(
-                &mut frame,
-                screen_w,
-                screen_h,
-                0,
-                menu_screen_y + total_menu_h as i32,
-                sidebar.width,
-                1,
-                COLOR_SIDEBAR_BORDER,
-            );
         }
 
+        draw_solid_rect_i32(
+            &mut frame,
+            screen_w,
+            screen_h,
+            0,
+            menu_screen_y + total_menu_h as i32 - 1,
+            sidebar.width,
+            1,
+            COLOR_SIDEBAR_BORDER,
+        );
+
         if sidebar.root_folder.is_some() {
-            let tree_start_abs = total_menu_h + 1;
+            let tree_start_abs = total_menu_h;
             let active_path = tabs.active_tab().and_then(|t| t.buffer.file_path.as_ref());
 
             for (idx, node) in sidebar.nodes.iter().enumerate() {

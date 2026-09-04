@@ -64,7 +64,7 @@ impl Sidebar {
     pub fn total_content_height(&self) -> usize {
         let menu_h = self.menu_total_height();
         if self.root_folder.is_some() {
-            menu_h + 1 + self.nodes.len() * SIDEBAR_ROW_HEIGHT
+            menu_h + self.nodes.len() * SIDEBAR_ROW_HEIGHT
         } else {
             menu_h
         }
@@ -84,7 +84,6 @@ impl Sidebar {
     pub fn open_folder(&mut self, path: PathBuf) {
         self.root_folder = Some(path.clone());
         self.nodes = read_dir_nodes(&path, 0);
-        self.menu_expanded = false;
         self.scroll_y = 0;
     }
 
