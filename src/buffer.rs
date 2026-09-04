@@ -2,7 +2,7 @@ use crate::history::{EditAction, History};
 use ropey::Rope;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub struct EditorBuffer {
     text: Rope,
@@ -46,22 +46,16 @@ impl EditorBuffer {
         Ok(())
     }
 
-    pub fn save(&mut self, default_dir: Option<&Path>) -> io::Result<()> {
-        if self.file_path.is_none() {
-            let dir = default_dir
-                .map(|p| p.to_path_buf())
-                .or_else(|| std::env::current_dir().ok())
-                .unwrap_or_else(|| PathBuf::from("."));
-            self.file_path = Some(dir.join("untitled.txt"));
+    pub fn save(&mut self) -> io::Result<()> {
+        if let Some(path) = &self.file_path {
+            let file = File::create(path)?;
+            let mut writer = BufWriter::new(file);
+            for chunk in self.text.chunks() {
+                writer.write_all(chunk.as_bytes())?;
+            }
+            writer.flush()?;
+            self.is_modified = false;
         }
-        let path = self.file_path.as_ref().unwrap();
-        let file = File::create(path)?;
-        let mut writer = BufWriter::new(file);
-        for chunk in self.text.chunks() {
-            writer.write_all(chunk.as_bytes())?;
-        }
-        writer.flush()?;
-        self.is_modified = false;
         Ok(())
     }
 

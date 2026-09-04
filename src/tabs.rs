@@ -58,14 +58,6 @@ impl TabManager {
         self.active_idx = Some(self.tabs.len() - 1);
     }
 
-    pub fn new_tab(&mut self) {
-        self.tabs.push(Tab {
-            buffer: EditorBuffer::new(),
-            title: "Untitled".to_string(),
-        });
-        self.active_idx = Some(self.tabs.len() - 1);
-    }
-
     pub fn request_close(&mut self, idx: usize) {
         if idx >= self.tabs.len() {
             return;

@@ -28,6 +28,7 @@ pub enum AppEvent {
     OpenFile(PathBuf),
     OpenFolder(PathBuf),
     SaveNewFile(PathBuf),
+    CreateFolder(PathBuf),
 }
 
 fn to_full_path(path: &Path) -> String {
@@ -109,8 +110,24 @@ fn main() {
                         }
                         AppEvent::SaveNewFile(path) => {
                             let _ = fs::File::create(&path);
-                            sidebar.refresh_folder();
+                            if let Some(ref root) = sidebar.root_folder {
+                                if path.starts_with(root) {
+                                    sidebar.refresh_folder();
+                                }
+                            }
                             tabs.open_file(path);
+                        }
+                        AppEvent::CreateFolder(path) => {
+                            let _ = fs::create_dir_all(&path);
+                            if let Some(ref root) = sidebar.root_folder {
+                                if path.starts_with(root) && &path != root {
+                                    sidebar.refresh_folder();
+                                } else {
+                                    sidebar.open_folder(path);
+                                }
+                            } else {
+                                sidebar.open_folder(path);
+                            }
                         }
                     }
                     update_window_title(&window, &tabs, &sidebar, &mut current_title);
@@ -181,41 +198,34 @@ fn main() {
                             ) {
                                 ActionEvent::Menu(item) => match item {
                                     MenuItem::NewFile => {
-                                        if let Some(root) = sidebar.root_folder.clone() {
-                                            let proxy = event_proxy.clone();
-                                            std::thread::spawn(move || {
-                                                if let Some(path) = rfd::FileDialog::new()
-                                                    .set_directory(&root)
-                                                    .save_file()
-                                                {
-                                                    let _ = proxy
-                                                        .send_event(AppEvent::SaveNewFile(path));
-                                                }
-                                            });
-                                        } else {
-                                            tabs.new_tab();
-                                            update_window_title(
-                                                &window,
-                                                &tabs,
-                                                &sidebar,
-                                                &mut current_title,
-                                            );
-                                            window.request_redraw();
-                                        }
+                                        let proxy = event_proxy.clone();
+                                        let root_opt = sidebar.root_folder.clone();
+                                        std::thread::spawn(move || {
+                                            let mut dialog =
+                                                rfd::FileDialog::new().set_title("New File");
+                                            if let Some(root) = root_opt {
+                                                dialog = dialog.set_directory(&root);
+                                            }
+                                            if let Some(path) = dialog.save_file() {
+                                                let _ =
+                                                    proxy.send_event(AppEvent::SaveNewFile(path));
+                                            }
+                                        });
                                     }
                                     MenuItem::NewFolder => {
-                                        if let Some(root) = &sidebar.root_folder {
-                                            let mut candidate = root.join("new_folder");
-                                            let mut counter = 1;
-                                            while candidate.exists() {
-                                                candidate =
-                                                    root.join(format!("new_folder_{counter}"));
-                                                counter += 1;
+                                        let proxy = event_proxy.clone();
+                                        let root_opt = sidebar.root_folder.clone();
+                                        std::thread::spawn(move || {
+                                            let mut dialog =
+                                                rfd::FileDialog::new().set_title("New Folder");
+                                            if let Some(root) = root_opt {
+                                                dialog = dialog.set_directory(&root);
                                             }
-                                            let _ = fs::create_dir(&candidate);
-                                            sidebar.refresh_folder();
-                                            window.request_redraw();
-                                        }
+                                            if let Some(path) = dialog.save_file() {
+                                                let _ =
+                                                    proxy.send_event(AppEvent::CreateFolder(path));
+                                            }
+                                        });
                                     }
                                     MenuItem::OpenFile => {
                                         let proxy = event_proxy.clone();
@@ -236,7 +246,7 @@ fn main() {
                                     }
                                     MenuItem::Save => {
                                         if let Some(tab) = tabs.active_tab_mut() {
-                                            let _ = tab.buffer.save(sidebar.root_folder.as_deref());
+                                            let _ = tab.buffer.save();
                                             if let Some(p) = &tab.buffer.file_path {
                                                 if let Some(name) =
                                                     p.file_name().and_then(|n| n.to_str())
@@ -269,7 +279,7 @@ fn main() {
                                 }
                                 ActionEvent::SaveTab(idx) => {
                                     if let Some(tab) = tabs.tabs.get_mut(idx) {
-                                        let _ = tab.buffer.save(sidebar.root_folder.as_deref());
+                                        let _ = tab.buffer.save();
                                     }
                                     if sidebar.root_folder.is_some() {
                                         sidebar.refresh_folder();
@@ -325,13 +335,7 @@ fn main() {
                         }
 
                         WindowEvent::KeyboardInput { event, .. } => {
-                            if input.handle_key(
-                                &event,
-                                &mut tabs,
-                                &layout,
-                                &mut clipboard,
-                                sidebar.root_folder.as_deref(),
-                            ) {
+                            if input.handle_key(&event, &mut tabs, &layout, &mut clipboard) {
                                 if sidebar.root_folder.is_some() {
                                     sidebar.refresh_folder();
                                 }

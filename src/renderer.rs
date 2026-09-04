@@ -178,7 +178,7 @@ impl Renderer {
                     &mut self.font_manager,
                     &mut frame,
                     label,
-                    12,
+                    14,
                     item_screen_y + row_offset_y as i32,
                     screen_w,
                     screen_h,

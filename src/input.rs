@@ -3,7 +3,7 @@ use crate::layout::{calc_thumb, ViewportLayout};
 use crate::sidebar::{MenuItem, Sidebar, MENU_ITEMS};
 use crate::tabs::TabManager;
 use arboard::Clipboard;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta};
 use winit::keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey};
 use winit::window::CursorIcon;
@@ -608,7 +608,6 @@ impl InputHandler {
         tabs: &mut TabManager,
         layout: &ViewportLayout,
         clipboard: &mut Option<Clipboard>,
-        default_dir: Option<&Path>,
     ) -> bool {
         if event.state == ElementState::Released {
             match &event.logical_key {
@@ -697,7 +696,7 @@ impl InputHandler {
                 };
 
             if is_ctrl && is_s {
-                let _ = buffer.save(default_dir);
+                let _ = buffer.save();
                 if let Some(p) = &buffer.file_path {
                     if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
                         tab.title = name.to_string();
