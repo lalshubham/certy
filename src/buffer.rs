@@ -154,20 +154,31 @@ impl EditorBuffer {
         }
     }
 
-    pub fn move_left(&mut self) {
-        self.selection_anchor = None;
+    #[inline(always)]
+    fn prepare_move(&mut self, selecting: bool) {
+        if selecting {
+            if self.selection_anchor.is_none() {
+                self.selection_anchor = Some(self.cursor_char);
+            }
+        } else {
+            self.selection_anchor = None;
+        }
+    }
+
+    pub fn move_left(&mut self, selecting: bool) {
+        self.prepare_move(selecting);
         self.cursor_char = self.cursor_char.saturating_sub(1);
     }
 
-    pub fn move_right(&mut self) {
-        self.selection_anchor = None;
+    pub fn move_right(&mut self, selecting: bool) {
+        self.prepare_move(selecting);
         if self.cursor_char < self.text.len_chars() {
             self.cursor_char += 1;
         }
     }
 
-    pub fn move_up(&mut self) {
-        self.selection_anchor = None;
+    pub fn move_up(&mut self, selecting: bool) {
+        self.prepare_move(selecting);
         let (line, col) = self.cursor_pos();
         if line > 0 {
             let target = line - 1;
@@ -176,8 +187,8 @@ impl EditorBuffer {
         }
     }
 
-    pub fn move_down(&mut self) {
-        self.selection_anchor = None;
+    pub fn move_down(&mut self, selecting: bool) {
+        self.prepare_move(selecting);
         let (line, col) = self.cursor_pos();
         if line + 1 < self.text.len_lines() {
             let target = line + 1;

@@ -1,5 +1,5 @@
 use crate::buffer::EditorBuffer;
-use crate::config::TOP_PADDING;
+use crate::config::{TOP_PADDING, TOUCHPAD_SCROLL_SPEED, WHEEL_SCROLL_SPEED};
 use crate::layout::{calc_thumb, ViewportLayout};
 use arboard::Clipboard;
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta};
@@ -239,14 +239,14 @@ impl InputHandler {
                     .len_lines()
                     .saturating_sub(layout.visible_lines);
                 let max_c = buffer.max_line_len.saturating_sub(layout.visible_cols);
-                buffer.scroll_line =
-                    (buffer.scroll_line as i32 - (v * 3.0) as i32).clamp(0, max_l as i32) as usize;
-                buffer.scroll_col =
-                    (buffer.scroll_col as i32 - (h * 3.0) as i32).clamp(0, max_c as i32) as usize;
+                buffer.scroll_line = (buffer.scroll_line as i32 - (v * WHEEL_SCROLL_SPEED) as i32)
+                    .clamp(0, max_l as i32) as usize;
+                buffer.scroll_col = (buffer.scroll_col as i32 - (h * WHEEL_SCROLL_SPEED) as i32)
+                    .clamp(0, max_c as i32) as usize;
             }
             MouseScrollDelta::PixelDelta(pos) => {
-                self.scroll_accum_y += pos.y;
-                self.scroll_accum_x += pos.x;
+                self.scroll_accum_y += pos.y * TOUCHPAD_SCROLL_SPEED;
+                self.scroll_accum_x += pos.x * TOUCHPAD_SCROLL_SPEED;
                 let lines = (self.scroll_accum_y / line_h as f64) as i32;
                 let cols = (self.scroll_accum_x / char_w as f64) as i32;
                 if lines != 0 {
@@ -280,7 +280,10 @@ impl InputHandler {
             return false;
         }
 
-        if self.modifiers.control_key() {
+        let is_ctrl = self.modifiers.control_key();
+        let is_shift = self.modifiers.shift_key();
+
+        if is_ctrl {
             match &event.logical_key {
                 Key::Character(c) if c.eq_ignore_ascii_case("c") => {
                     if let Some(text) = buffer.selected_text() {
@@ -312,7 +315,7 @@ impl InputHandler {
                     return false;
                 }
                 Key::Character(c) if c.eq_ignore_ascii_case("z") => {
-                    if self.modifiers.shift_key() {
+                    if is_shift {
                         buffer.redo();
                     } else {
                         buffer.undo();
@@ -337,12 +340,12 @@ impl InputHandler {
             Key::Named(NamedKey::Backspace) => buffer.delete_backwards(),
             Key::Named(NamedKey::Delete) => buffer.delete_forward(),
             Key::Named(NamedKey::Enter) => buffer.insert_char('\n'),
-            Key::Named(NamedKey::ArrowLeft) => buffer.move_left(),
-            Key::Named(NamedKey::ArrowRight) => buffer.move_right(),
-            Key::Named(NamedKey::ArrowUp) => buffer.move_up(),
-            Key::Named(NamedKey::ArrowDown) => buffer.move_down(),
+            Key::Named(NamedKey::ArrowLeft) => buffer.move_left(is_shift),
+            Key::Named(NamedKey::ArrowRight) => buffer.move_right(is_shift),
+            Key::Named(NamedKey::ArrowUp) => buffer.move_up(is_shift),
+            Key::Named(NamedKey::ArrowDown) => buffer.move_down(is_shift),
             _ => {
-                if !self.modifiers.control_key() {
+                if !is_ctrl {
                     if let Some(txt) = &event.text {
                         for ch in txt.chars() {
                             if !ch.is_control() {

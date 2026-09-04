@@ -15,3 +15,6 @@ pub const GUTTER_PADDING: usize = 16;
 pub const CODE_LEFT_MARGIN: usize = 16;
 pub const SCROLLBAR_THICKNESS: usize = 14;
 pub const MIN_THUMB_SIZE: usize = 28;
+
+pub const WHEEL_SCROLL_SPEED: f32 = 5.0;
+pub const TOUCHPAD_SCROLL_SPEED: f64 = 5.0;
