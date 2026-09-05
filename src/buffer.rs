@@ -302,13 +302,17 @@ impl EditorBuffer {
     }
 
     fn recompute_max_line_len(&mut self) {
-        let mut max_len = 0;
-        for i in 0..self.text.len_lines() {
-            let len = self.line_len(i);
-            if len > max_len {
-                max_len = len;
-            }
-        }
-        self.max_line_len = max_len;
+        self.max_line_len = self
+            .text
+            .lines()
+            .map(|slice| {
+                let mut len = slice.len_chars();
+                while len > 0 && matches!(slice.char(len - 1), '\n' | '\r') {
+                    len -= 1;
+                }
+                len
+            })
+            .max()
+            .unwrap_or(0);
     }
 }

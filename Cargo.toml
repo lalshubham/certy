@@ -4,14 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-winit = { version = "0.29", default-features = false, features = [
+winit = { version = "0.30.13", default-features = false, features = [
     "rwh_06",
     "wayland",
     "wayland-csd-adwaita",
     "x11",
 ] }
-softbuffer = "0.4"
-ropey = "1.6"
-fontdue = "0.9"
-arboard = "3.4"
-rfd = "0.15"
+softbuffer = "0.4.8"
+ropey = "1.6.1"
+fontdue = "0.9.4"
+arboard = "3.6.1"
+rfd = "0.17.2"

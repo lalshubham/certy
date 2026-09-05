@@ -17,10 +17,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tabs::TabManager;
 use winit::{
+    application::ApplicationHandler,
     dpi::LogicalSize,
-    event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoopBuilder},
-    window::{CursorIcon, Window, WindowBuilder},
+    event::WindowEvent,
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
+    window::{CursorIcon, Window, WindowId},
 };
 
 #[derive(Debug)]
@@ -69,287 +70,318 @@ fn update_window_title(
     }
 }
 
-fn main() {
-    let event_loop = EventLoopBuilder::<AppEvent>::with_user_event()
-        .build()
-        .expect("Failed to create event loop");
-    let event_proxy = event_loop.create_proxy();
+struct App {
+    window: Option<Arc<Window>>,
+    renderer: Option<Renderer>,
+    tabs: TabManager,
+    sidebar: Sidebar,
+    input: InputHandler,
+    clipboard: Option<arboard::Clipboard>,
+    active_cursor_icon: CursorIcon,
+    current_title: String,
+    event_proxy: EventLoopProxy<AppEvent>,
+}
 
-    let window = Arc::new(
-        WindowBuilder::new()
-            .with_title("Certy")
-            .with_inner_size(LogicalSize::new(1024.0, 768.0))
-            .with_min_inner_size(LogicalSize::new(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT))
-            .build(&event_loop)
-            .expect("Failed to create window"),
-    );
+impl ApplicationHandler<AppEvent> for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_none() {
+            let attributes = Window::default_attributes()
+                .with_title("Certy")
+                .with_inner_size(LogicalSize::new(1024.0, 768.0))
+                .with_min_inner_size(LogicalSize::new(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT));
+            let window = Arc::new(
+                event_loop
+                    .create_window(attributes)
+                    .expect("Failed to create window"),
+            );
+            let renderer = Renderer::new(window.clone());
+            update_window_title(&window, &self.tabs, &self.sidebar, &mut self.current_title);
+            window.request_redraw();
+            self.window = Some(window);
+            self.renderer = Some(renderer);
+        }
+    }
 
-    let mut renderer = Renderer::new(window.clone());
-    let mut tabs = TabManager::new();
-    let mut sidebar = Sidebar::new();
-    let mut input = InputHandler::default();
-    let mut clipboard = arboard::Clipboard::new().ok();
-    let mut active_cursor_icon = CursorIcon::Default;
-    let mut current_title = String::new();
-
-    update_window_title(&window, &tabs, &sidebar, &mut current_title);
-    window.request_redraw();
-
-    event_loop
-        .run(move |event, elwt| {
-            elwt.set_control_flow(ControlFlow::Wait);
-
-            match event {
-                Event::UserEvent(app_event) => {
-                    match app_event {
-                        AppEvent::OpenFile(path) => {
-                            tabs.open_file(path);
-                        }
-                        AppEvent::OpenFolder(path) => {
-                            sidebar.open_folder(path);
-                        }
-                        AppEvent::SaveNewFile(path) => {
-                            let _ = fs::File::create(&path);
-                            if let Some(ref root) = sidebar.root_folder {
-                                if path.starts_with(root) {
-                                    sidebar.refresh_folder();
-                                }
-                            }
-                            tabs.open_file(path);
-                        }
-                        AppEvent::CreateFolder(path) => {
-                            let _ = fs::create_dir_all(&path);
-                            if let Some(ref root) = sidebar.root_folder {
-                                if path.starts_with(root) && &path != root {
-                                    sidebar.refresh_folder();
-                                } else {
-                                    sidebar.open_folder(path);
-                                }
-                            } else {
-                                sidebar.open_folder(path);
-                            }
-                        }
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) {
+        match event {
+            AppEvent::OpenFile(path) => {
+                self.tabs.open_file(path);
+            }
+            AppEvent::OpenFolder(path) => {
+                self.sidebar.open_folder(path);
+            }
+            AppEvent::SaveNewFile(path) => {
+                let _ = fs::File::create(&path);
+                if let Some(ref root) = self.sidebar.root_folder {
+                    if path.starts_with(root) {
+                        self.sidebar.refresh_folder();
                     }
-                    update_window_title(&window, &tabs, &sidebar, &mut current_title);
+                }
+                self.tabs.open_file(path);
+            }
+            AppEvent::CreateFolder(path) => {
+                let _ = fs::create_dir_all(&path);
+                if let Some(ref root) = self.sidebar.root_folder {
+                    if path.starts_with(root) && &path != root {
+                        self.sidebar.refresh_folder();
+                    } else {
+                        self.sidebar.open_folder(path);
+                    }
+                } else {
+                    self.sidebar.open_folder(path);
+                }
+            }
+        }
+        if let Some(window) = &self.window {
+            update_window_title(window, &self.tabs, &self.sidebar, &mut self.current_title);
+            window.request_redraw();
+        }
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        let (window, renderer) = match (&self.window, &mut self.renderer) {
+            (Some(w), Some(r)) if w.id() == window_id => (w, r),
+            _ => return,
+        };
+
+        let total_lines = self
+            .tabs
+            .active_tab()
+            .map(|t| t.buffer.text().len_lines())
+            .unwrap_or(0);
+        let layout = renderer.layout(total_lines, self.sidebar.width);
+        let cw = renderer.font_manager.char_width;
+        let lh = renderer.font_manager.line_height;
+
+        match event {
+            WindowEvent::RedrawRequested => renderer.render(&self.tabs, &self.sidebar),
+
+            WindowEvent::Resized(size) => {
+                renderer.resize(size.width, size.height);
+                if let Some(tab) = self.tabs.active_tab_mut() {
+                    let l = renderer.layout(tab.buffer.text().len_lines(), self.sidebar.width);
+                    tab.buffer.fit_view(l.visible_lines, l.visible_cols);
+                }
+                window.request_redraw();
+            }
+
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.input.modifiers = modifiers.state();
+            }
+
+            WindowEvent::CursorMoved { position, .. } => {
+                if self.input.handle_cursor_move(
+                    position.x,
+                    position.y,
+                    &mut self.tabs,
+                    &mut self.sidebar,
+                    &layout,
+                    cw,
+                    lh,
+                    renderer.width,
+                    renderer.height,
+                ) {
                     window.request_redraw();
                 }
 
-                Event::WindowEvent { event, window_id } if window_id == window.id() => {
-                    let total_lines = tabs
-                        .active_tab()
-                        .map(|t| t.buffer.text().len_lines())
-                        .unwrap_or(0);
-                    let layout = renderer.layout(total_lines, sidebar.width);
-                    let cw = renderer.font_manager.char_width;
-                    let lh = renderer.font_manager.line_height;
-
-                    match event {
-                        WindowEvent::RedrawRequested => renderer.render(&tabs, &sidebar),
-
-                        WindowEvent::Resized(size) => {
-                            renderer.resize(size.width, size.height);
-                            if let Some(tab) = tabs.active_tab_mut() {
-                                let l =
-                                    renderer.layout(tab.buffer.text().len_lines(), sidebar.width);
-                                tab.buffer.fit_view(l.visible_lines, l.visible_cols);
-                            }
-                            window.request_redraw();
-                        }
-
-                        WindowEvent::ModifiersChanged(modifiers) => {
-                            input.modifiers = modifiers.state();
-                        }
-
-                        WindowEvent::CursorMoved { position, .. } => {
-                            if input.handle_cursor_move(
-                                position.x,
-                                position.y,
-                                &mut tabs,
-                                &mut sidebar,
-                                &layout,
-                                cw,
-                                lh,
-                                renderer.width,
-                                renderer.height,
-                            ) {
-                                window.request_redraw();
-                            }
-
-                            let current_layout = renderer.layout(total_lines, sidebar.width);
-                            let desired_icon =
-                                input.desired_cursor_icon(&current_layout, &tabs, &sidebar);
-                            if active_cursor_icon != desired_icon {
-                                active_cursor_icon = desired_icon;
-                                window.set_cursor_icon(desired_icon);
-                            }
-                        }
-
-                        WindowEvent::MouseInput { state, button, .. } => {
-                            match input.handle_mouse_click(
-                                state,
-                                button,
-                                &mut tabs,
-                                &mut sidebar,
-                                &layout,
-                                cw,
-                                lh,
-                                renderer.width,
-                                renderer.height,
-                            ) {
-                                ActionEvent::Menu(item) => match item {
-                                    MenuItem::NewFile => {
-                                        let proxy = event_proxy.clone();
-                                        let root_opt = sidebar.root_folder.clone();
-                                        std::thread::spawn(move || {
-                                            let mut dialog =
-                                                rfd::FileDialog::new().set_title("New File");
-                                            if let Some(root) = root_opt {
-                                                dialog = dialog.set_directory(&root);
-                                            }
-                                            if let Some(path) = dialog.save_file() {
-                                                let _ =
-                                                    proxy.send_event(AppEvent::SaveNewFile(path));
-                                            }
-                                        });
-                                    }
-                                    MenuItem::NewFolder => {
-                                        let proxy = event_proxy.clone();
-                                        let root_opt = sidebar.root_folder.clone();
-                                        std::thread::spawn(move || {
-                                            let mut dialog =
-                                                rfd::FileDialog::new().set_title("New Folder");
-                                            if let Some(root) = root_opt {
-                                                dialog = dialog.set_directory(&root);
-                                            }
-                                            if let Some(path) = dialog.save_file() {
-                                                let _ =
-                                                    proxy.send_event(AppEvent::CreateFolder(path));
-                                            }
-                                        });
-                                    }
-                                    MenuItem::OpenFile => {
-                                        let proxy = event_proxy.clone();
-                                        std::thread::spawn(move || {
-                                            if let Some(path) = rfd::FileDialog::new().pick_file() {
-                                                let _ = proxy.send_event(AppEvent::OpenFile(path));
-                                            }
-                                        });
-                                    }
-                                    MenuItem::OpenFolder => {
-                                        let proxy = event_proxy.clone();
-                                        std::thread::spawn(move || {
-                                            if let Some(dir) = rfd::FileDialog::new().pick_folder()
-                                            {
-                                                let _ = proxy.send_event(AppEvent::OpenFolder(dir));
-                                            }
-                                        });
-                                    }
-                                    MenuItem::Save => {
-                                        if let Some(tab) = tabs.active_tab_mut() {
-                                            let _ = tab.buffer.save();
-                                            if let Some(p) = &tab.buffer.file_path {
-                                                if let Some(name) =
-                                                    p.file_name().and_then(|n| n.to_str())
-                                                {
-                                                    tab.title = name.to_string();
-                                                }
-                                            }
-                                            if sidebar.root_folder.is_some() {
-                                                sidebar.refresh_folder();
-                                            }
-                                            update_window_title(
-                                                &window,
-                                                &tabs,
-                                                &sidebar,
-                                                &mut current_title,
-                                            );
-                                            window.request_redraw();
-                                        }
-                                    }
-                                },
-                                ActionEvent::OpenFile(path) => {
-                                    tabs.open_file(path);
-                                    update_window_title(
-                                        &window,
-                                        &tabs,
-                                        &sidebar,
-                                        &mut current_title,
-                                    );
-                                    window.request_redraw();
-                                }
-                                ActionEvent::SaveTab(idx) => {
-                                    if let Some(tab) = tabs.tabs.get_mut(idx) {
-                                        let _ = tab.buffer.save();
-                                    }
-                                    if sidebar.root_folder.is_some() {
-                                        sidebar.refresh_folder();
-                                    }
-                                    tabs.close_tab(idx);
-                                    update_window_title(
-                                        &window,
-                                        &tabs,
-                                        &sidebar,
-                                        &mut current_title,
-                                    );
-                                    window.request_redraw();
-                                }
-                                ActionEvent::Redraw => {
-                                    update_window_title(
-                                        &window,
-                                        &tabs,
-                                        &sidebar,
-                                        &mut current_title,
-                                    );
-                                    window.request_redraw();
-                                }
-                                ActionEvent::None => {}
-                            }
-
-                            let current_layout = renderer.layout(total_lines, sidebar.width);
-                            let desired_icon =
-                                input.desired_cursor_icon(&current_layout, &tabs, &sidebar);
-                            if active_cursor_icon != desired_icon {
-                                active_cursor_icon = desired_icon;
-                                window.set_cursor_icon(desired_icon);
-                            }
-                        }
-
-                        WindowEvent::Focused(is_focused) => {
-                            if !is_focused {
-                                input.drag = input::DragState::None;
-                            }
-                        }
-
-                        WindowEvent::MouseWheel { delta, .. } => {
-                            if input.handle_mouse_wheel(
-                                delta,
-                                &mut tabs,
-                                &mut sidebar,
-                                &layout,
-                                cw,
-                                lh,
-                                renderer.height,
-                            ) {
-                                window.request_redraw();
-                            }
-                        }
-
-                        WindowEvent::KeyboardInput { event, .. } => {
-                            if input.handle_key(&event, &mut tabs, &layout, &mut clipboard) {
-                                if sidebar.root_folder.is_some() {
-                                    sidebar.refresh_folder();
-                                }
-                                update_window_title(&window, &tabs, &sidebar, &mut current_title);
-                                window.request_redraw();
-                            }
-                        }
-
-                        WindowEvent::CloseRequested => elwt.exit(),
-                        _ => {}
-                    }
+                let current_layout = renderer.layout(total_lines, self.sidebar.width);
+                let desired_icon =
+                    self.input
+                        .desired_cursor_icon(&current_layout, &self.tabs, &self.sidebar);
+                if self.active_cursor_icon != desired_icon {
+                    self.active_cursor_icon = desired_icon;
+                    window.set_cursor(desired_icon);
                 }
-                _ => {}
             }
-        })
+
+            WindowEvent::MouseInput { state, button, .. } => {
+                match self.input.handle_mouse_click(
+                    state,
+                    button,
+                    &mut self.tabs,
+                    &mut self.sidebar,
+                    &layout,
+                    cw,
+                    lh,
+                    renderer.width,
+                    renderer.height,
+                ) {
+                    ActionEvent::Menu(item) => match item {
+                        MenuItem::NewFile => {
+                            let proxy = self.event_proxy.clone();
+                            let root_opt = self.sidebar.root_folder.clone();
+                            std::thread::spawn(move || {
+                                let mut dialog = rfd::FileDialog::new().set_title("New File");
+                                if let Some(root) = root_opt {
+                                    dialog = dialog.set_directory(&root);
+                                }
+                                if let Some(path) = dialog.save_file() {
+                                    let _ = proxy.send_event(AppEvent::SaveNewFile(path));
+                                }
+                            });
+                        }
+                        MenuItem::NewFolder => {
+                            let proxy = self.event_proxy.clone();
+                            let root_opt = self.sidebar.root_folder.clone();
+                            std::thread::spawn(move || {
+                                let mut dialog = rfd::FileDialog::new().set_title("New Folder");
+                                if let Some(root) = root_opt {
+                                    dialog = dialog.set_directory(&root);
+                                }
+                                if let Some(path) = dialog.save_file() {
+                                    let _ = proxy.send_event(AppEvent::CreateFolder(path));
+                                }
+                            });
+                        }
+                        MenuItem::OpenFile => {
+                            let proxy = self.event_proxy.clone();
+                            std::thread::spawn(move || {
+                                if let Some(path) = rfd::FileDialog::new().pick_file() {
+                                    let _ = proxy.send_event(AppEvent::OpenFile(path));
+                                }
+                            });
+                        }
+                        MenuItem::OpenFolder => {
+                            let proxy = self.event_proxy.clone();
+                            std::thread::spawn(move || {
+                                if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                                    let _ = proxy.send_event(AppEvent::OpenFolder(dir));
+                                }
+                            });
+                        }
+                        MenuItem::Save => {
+                            if let Some(tab) = self.tabs.active_tab_mut() {
+                                let _ = tab.buffer.save();
+                                if let Some(p) = &tab.buffer.file_path {
+                                    if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                                        tab.title = name.to_string();
+                                    }
+                                }
+                                if self.sidebar.root_folder.is_some() {
+                                    self.sidebar.refresh_folder();
+                                }
+                                update_window_title(
+                                    window,
+                                    &self.tabs,
+                                    &self.sidebar,
+                                    &mut self.current_title,
+                                );
+                                window.request_redraw();
+                            }
+                        }
+                    },
+                    ActionEvent::OpenFile(path) => {
+                        self.tabs.open_file(path);
+                        update_window_title(
+                            window,
+                            &self.tabs,
+                            &self.sidebar,
+                            &mut self.current_title,
+                        );
+                        window.request_redraw();
+                    }
+                    ActionEvent::SaveTab(idx) => {
+                        if let Some(tab) = self.tabs.tabs.get_mut(idx) {
+                            let _ = tab.buffer.save();
+                        }
+                        if self.sidebar.root_folder.is_some() {
+                            self.sidebar.refresh_folder();
+                        }
+                        self.tabs.close_tab(idx);
+                        update_window_title(
+                            window,
+                            &self.tabs,
+                            &self.sidebar,
+                            &mut self.current_title,
+                        );
+                        window.request_redraw();
+                    }
+                    ActionEvent::Redraw => {
+                        update_window_title(
+                            window,
+                            &self.tabs,
+                            &self.sidebar,
+                            &mut self.current_title,
+                        );
+                        window.request_redraw();
+                    }
+                    ActionEvent::None => {}
+                }
+
+                let current_layout = renderer.layout(total_lines, self.sidebar.width);
+                let desired_icon =
+                    self.input
+                        .desired_cursor_icon(&current_layout, &self.tabs, &self.sidebar);
+                if self.active_cursor_icon != desired_icon {
+                    self.active_cursor_icon = desired_icon;
+                    window.set_cursor(desired_icon);
+                }
+            }
+
+            WindowEvent::Focused(is_focused) => {
+                if !is_focused {
+                    self.input.drag = input::DragState::None;
+                }
+            }
+
+            WindowEvent::MouseWheel { delta, .. } => {
+                if self.input.handle_mouse_wheel(
+                    delta,
+                    &mut self.tabs,
+                    &mut self.sidebar,
+                    &layout,
+                    cw,
+                    lh,
+                    renderer.height,
+                ) {
+                    window.request_redraw();
+                }
+            }
+
+            WindowEvent::KeyboardInput { event, .. } => {
+                if self
+                    .input
+                    .handle_key(&event, &mut self.tabs, &layout, &mut self.clipboard)
+                {
+                    if self.sidebar.root_folder.is_some() {
+                        self.sidebar.refresh_folder();
+                    }
+                    update_window_title(window, &self.tabs, &self.sidebar, &mut self.current_title);
+                    window.request_redraw();
+                }
+            }
+
+            WindowEvent::CloseRequested => event_loop.exit(),
+            _ => {}
+        }
+    }
+}
+
+fn main() {
+    let event_loop = EventLoop::<AppEvent>::with_user_event()
+        .build()
+        .expect("Failed to create event loop");
+    event_loop.set_control_flow(ControlFlow::Wait);
+    let event_proxy = event_loop.create_proxy();
+
+    let mut app = App {
+        window: None,
+        renderer: None,
+        tabs: TabManager::new(),
+        sidebar: Sidebar::new(),
+        input: InputHandler::default(),
+        clipboard: arboard::Clipboard::new().ok(),
+        active_cursor_icon: CursorIcon::Default,
+        current_title: String::new(),
+        event_proxy,
+    };
+
+    event_loop
+        .run_app(&mut app)
         .expect("Error running event loop");
 }
