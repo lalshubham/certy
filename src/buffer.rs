@@ -2,7 +2,7 @@ use crate::history::{EditAction, History};
 use ropey::Rope;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct EditorBuffer {
     text: Rope,
@@ -37,6 +37,21 @@ impl EditorBuffer {
         self.text = text;
         self.file_path = Some(path);
         self.is_modified = false;
+        self.cursor_char = 0;
+        self.selection_anchor = None;
+        self.scroll_line = 0;
+        self.scroll_col = 0;
+        self.history = History::new();
+        self.recompute_max_line_len();
+        Ok(())
+    }
+
+    pub fn load_recovered(&mut self, path: PathBuf, recovery_path: &Path) -> io::Result<()> {
+        let file = File::open(recovery_path)?;
+        let text = Rope::from_reader(BufReader::new(file))?;
+        self.text = text;
+        self.file_path = Some(path);
+        self.is_modified = true;
         self.cursor_char = 0;
         self.selection_anchor = None;
         self.scroll_line = 0;

@@ -355,6 +355,7 @@ impl InputHandler {
         }
 
         if state == ElementState::Released {
+            let was_dragging = self.drag != DragState::None;
             if let Some(active_tab) = tabs.active_tab_mut() {
                 if self.drag == DragState::SelectingText
                     && active_tab.buffer.selection_anchor == Some(active_tab.buffer.cursor_char)
@@ -363,7 +364,11 @@ impl InputHandler {
                 }
             }
             self.drag = DragState::None;
-            return ActionEvent::None;
+            return if was_dragging {
+                ActionEvent::Redraw
+            } else {
+                ActionEvent::None
+            };
         }
 
         let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);

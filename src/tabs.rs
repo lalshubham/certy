@@ -111,6 +111,29 @@ impl TabManager {
         self.active_idx = Some(self.tabs.len() - 1);
     }
 
+    pub fn open_recovered(&mut self, path: PathBuf, recovery_path: &Path) {
+        for (idx, tab) in self.tabs.iter().enumerate() {
+            if tab.buffer.file_path.as_ref() == Some(&path) {
+                self.active_idx = Some(idx);
+                return;
+            }
+        }
+
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("file")
+            .to_string();
+        let mut buffer = EditorBuffer::new();
+        let _ = buffer.load_recovered(path, recovery_path);
+
+        self.tabs.push(Tab {
+            buffer,
+            title: name,
+        });
+        self.active_idx = Some(self.tabs.len() - 1);
+    }
+
     pub fn request_close(&mut self, idx: usize) {
         if idx >= self.tabs.len() {
             return;
