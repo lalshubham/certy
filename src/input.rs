@@ -85,6 +85,7 @@ impl InputHandler {
         if mx < layout.content_left {
             return if sidebar.hovered_menu_header
                 || sidebar.hovered_menu_item.is_some()
+                || sidebar.hovered_root_header
                 || sidebar.hovered_tree_row.is_some()
             {
                 CursorIcon::Pointer
@@ -156,12 +157,14 @@ impl InputHandler {
 
         let prev_sh = sidebar.hovered_menu_header;
         let prev_sitem = sidebar.hovered_menu_item;
+        let prev_sroot = sidebar.hovered_root_header;
         let prev_stree = sidebar.hovered_tree_row;
         let prev_th = tabs.hovered_tab;
         let prev_ch = tabs.hovered_close;
 
         sidebar.hovered_menu_header = false;
         sidebar.hovered_menu_item = None;
+        sidebar.hovered_root_header = false;
         sidebar.hovered_tree_row = None;
         tabs.hovered_tab = None;
         tabs.hovered_close = None;
@@ -183,10 +186,15 @@ impl InputHandler {
                             sidebar.hovered_menu_item = Some(MENU_ITEMS[item_idx].0);
                         }
                     } else if sidebar.root_folder.is_some() && cy >= sidebar.menu_total_height() {
-                        let tree_y = cy - sidebar.menu_total_height();
-                        let node_idx = tree_y / SIDEBAR_ROW_HEIGHT;
-                        if node_idx < sidebar.nodes.len() {
-                            sidebar.hovered_tree_row = Some(node_idx);
+                        let rel_y = cy - sidebar.menu_total_height();
+                        if rel_y < TAB_BAR_HEIGHT {
+                            sidebar.hovered_root_header = true;
+                        } else if sidebar.root_expanded {
+                            let tree_y = rel_y - TAB_BAR_HEIGHT;
+                            let node_idx = tree_y / SIDEBAR_ROW_HEIGHT;
+                            if node_idx < sidebar.nodes.len() {
+                                sidebar.hovered_tree_row = Some(node_idx);
+                            }
                         }
                     }
                 }
@@ -209,6 +217,7 @@ impl InputHandler {
 
         let mut changed = prev_sh != sidebar.hovered_menu_header
             || prev_sitem != sidebar.hovered_menu_item
+            || prev_sroot != sidebar.hovered_root_header
             || prev_stree != sidebar.hovered_tree_row
             || prev_th != tabs.hovered_tab
             || prev_ch != tabs.hovered_close;
@@ -419,14 +428,22 @@ impl InputHandler {
                     }
                 }
                 if sidebar.root_folder.is_some() && cy >= sidebar.menu_total_height() {
-                    let tree_y = cy - sidebar.menu_total_height();
-                    let node_idx = tree_y / SIDEBAR_ROW_HEIGHT;
-                    if node_idx < sidebar.nodes.len() {
-                        if sidebar.nodes[node_idx].is_dir {
-                            sidebar.toggle_dir(node_idx);
-                            return ActionEvent::Redraw;
-                        } else {
-                            return ActionEvent::OpenFile(sidebar.nodes[node_idx].path.clone());
+                    let rel_y = cy - sidebar.menu_total_height();
+                    if rel_y < TAB_BAR_HEIGHT {
+                        sidebar.toggle_root();
+                        sidebar.clamp_scroll(screen_h);
+                        return ActionEvent::Redraw;
+                    } else if sidebar.root_expanded {
+                        let tree_y = rel_y - TAB_BAR_HEIGHT;
+                        let node_idx = tree_y / SIDEBAR_ROW_HEIGHT;
+                        if node_idx < sidebar.nodes.len() {
+                            if sidebar.nodes[node_idx].is_dir {
+                                sidebar.toggle_dir(node_idx);
+                                sidebar.clamp_scroll(screen_h);
+                                return ActionEvent::Redraw;
+                            } else {
+                                return ActionEvent::OpenFile(sidebar.nodes[node_idx].path.clone());
+                            }
                         }
                     }
                 }

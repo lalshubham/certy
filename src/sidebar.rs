@@ -32,10 +32,12 @@ pub struct Sidebar {
     pub width: usize,
     pub menu_expanded: bool,
     pub root_folder: Option<PathBuf>,
+    pub root_expanded: bool,
     pub nodes: Vec<FileNode>,
     pub scroll_y: usize,
     pub hovered_menu_header: bool,
     pub hovered_menu_item: Option<MenuItem>,
+    pub hovered_root_header: bool,
     pub hovered_tree_row: Option<usize>,
 }
 
@@ -45,10 +47,12 @@ impl Sidebar {
             width: SIDEBAR_INITIAL_WIDTH,
             menu_expanded: true,
             root_folder: None,
+            root_expanded: true,
             nodes: Vec::new(),
             scroll_y: 0,
             hovered_menu_header: false,
             hovered_menu_item: None,
+            hovered_root_header: false,
             hovered_tree_row: None,
         }
     }
@@ -64,7 +68,12 @@ impl Sidebar {
     pub fn total_content_height(&self) -> usize {
         let menu_h = self.menu_total_height();
         if self.root_folder.is_some() {
-            menu_h + self.nodes.len() * SIDEBAR_ROW_HEIGHT
+            let tree_h = if self.root_expanded {
+                self.nodes.len() * SIDEBAR_ROW_HEIGHT
+            } else {
+                0
+            };
+            menu_h + TAB_BAR_HEIGHT + tree_h
         } else {
             menu_h
         }
@@ -81,8 +90,23 @@ impl Sidebar {
         self.menu_expanded = !self.menu_expanded;
     }
 
+    pub fn toggle_root(&mut self) {
+        self.root_expanded = !self.root_expanded;
+    }
+
+    pub fn root_name(&self) -> Option<String> {
+        self.root_folder.as_ref().map(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| p.to_str().unwrap_or("FOLDER"))
+                .to_uppercase()
+        })
+    }
+
     pub fn open_folder(&mut self, path: PathBuf) {
         self.root_folder = Some(path.clone());
+        self.root_expanded = true;
         self.nodes = read_dir_nodes(&path, 0);
         self.scroll_y = 0;
     }
