@@ -1,5 +1,5 @@
 use crate::buffer::EditorBuffer;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct Tab {
     pub buffer: EditorBuffer,
@@ -134,6 +134,27 @@ impl TabManager {
             self.scroll_x = 0;
         } else if let Some(cur) = self.active_idx {
             if cur >= self.tabs.len() || cur == idx {
+                self.active_idx = Some(self.tabs.len().saturating_sub(1));
+            }
+        }
+        self.pending_close = None;
+        self.hovered_tab = None;
+        self.hovered_close = None;
+    }
+
+    pub fn close_folder_tabs(&mut self, root: &Path) {
+        self.tabs.retain(|tab| {
+            if let Some(ref p) = tab.buffer.file_path {
+                !p.starts_with(root)
+            } else {
+                true
+            }
+        });
+        if self.tabs.is_empty() {
+            self.active_idx = None;
+            self.scroll_x = 0;
+        } else if let Some(cur) = self.active_idx {
+            if cur >= self.tabs.len() {
                 self.active_idx = Some(self.tabs.len().saturating_sub(1));
             }
         }

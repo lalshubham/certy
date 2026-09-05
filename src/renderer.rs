@@ -1,7 +1,7 @@
 use crate::config::*;
 use crate::font::FontManager;
 use crate::layout::{calc_thumb, compute_layout, compute_modal_layout, ViewportLayout};
-use crate::sidebar::{Sidebar, MENU_ITEMS};
+use crate::sidebar::{MenuItem, Sidebar};
 use crate::tabs::TabManager;
 use softbuffer::{Context, Surface};
 use std::num::NonZeroU32;
@@ -154,12 +154,18 @@ impl Renderer {
             COLOR_LINE_NUMBER_ACTIVE,
         );
 
+        let can_save = tabs
+            .active_tab()
+            .map(|t| t.buffer.is_modified)
+            .unwrap_or(false);
+
         if sidebar.menu_expanded {
-            for (idx, (item, label)) in MENU_ITEMS.iter().enumerate() {
+            for (idx, (item, label)) in sidebar.menu_items().iter().enumerate() {
                 let item_screen_y =
                     menu_screen_y + (TAB_BAR_HEIGHT + idx * SIDEBAR_ROW_HEIGHT) as i32;
+                let is_disabled = *item == MenuItem::Save && !can_save;
                 let is_hovered = sidebar.hovered_menu_item == Some(*item);
-                let bg = if is_hovered {
+                let bg = if is_hovered && !is_disabled {
                     COLOR_SIDEBAR_ROW_HOVER
                 } else {
                     COLOR_BACKGROUND
@@ -174,6 +180,11 @@ impl Renderer {
                     SIDEBAR_ROW_HEIGHT,
                     bg,
                 );
+                let text_color = if is_disabled {
+                    COLOR_LINE_NUMBER_MUTED
+                } else {
+                    COLOR_SIDEBAR_TEXT
+                };
                 draw_string(
                     &mut self.font_manager,
                     &mut frame,
@@ -182,7 +193,7 @@ impl Renderer {
                     item_screen_y + row_offset_y as i32,
                     screen_w,
                     screen_h,
-                    COLOR_SIDEBAR_TEXT,
+                    text_color,
                 );
             }
         }

@@ -9,15 +9,9 @@ pub enum MenuItem {
     OpenFile,
     OpenFolder,
     Save,
+    CloseFolder,
+    Exit,
 }
-
-pub const MENU_ITEMS: [(MenuItem, &str); 5] = [
-    (MenuItem::NewFile, "New File"),
-    (MenuItem::NewFolder, "New Folder"),
-    (MenuItem::OpenFile, "Open File"),
-    (MenuItem::OpenFolder, "Open Folder"),
-    (MenuItem::Save, "Save"),
-];
 
 #[derive(Clone)]
 pub struct FileNode {
@@ -57,9 +51,25 @@ impl Sidebar {
         }
     }
 
+    pub fn menu_items(&self) -> [(MenuItem, &'static str); 6] {
+        let last = if self.root_folder.is_some() {
+            (MenuItem::CloseFolder, "Close Folder")
+        } else {
+            (MenuItem::Exit, "Exit")
+        };
+        [
+            (MenuItem::NewFile, "New File"),
+            (MenuItem::NewFolder, "New Folder"),
+            (MenuItem::OpenFile, "Open File"),
+            (MenuItem::OpenFolder, "Open Folder"),
+            (MenuItem::Save, "Save"),
+            last,
+        ]
+    }
+
     pub fn menu_total_height(&self) -> usize {
         if self.menu_expanded {
-            TAB_BAR_HEIGHT + MENU_ITEMS.len() * SIDEBAR_ROW_HEIGHT
+            TAB_BAR_HEIGHT + 6 * SIDEBAR_ROW_HEIGHT
         } else {
             TAB_BAR_HEIGHT
         }
@@ -108,6 +118,12 @@ impl Sidebar {
         self.root_folder = Some(path.clone());
         self.root_expanded = true;
         self.nodes = read_dir_nodes(&path, 0);
+        self.scroll_y = 0;
+    }
+
+    pub fn close_folder(&mut self) {
+        self.root_folder = None;
+        self.nodes.clear();
         self.scroll_y = 0;
     }
 

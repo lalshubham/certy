@@ -1,6 +1,6 @@
 use crate::config::*;
 use crate::layout::{calc_thumb, compute_modal_layout, ViewportLayout};
-use crate::sidebar::{MenuItem, Sidebar, MENU_ITEMS};
+use crate::sidebar::{MenuItem, Sidebar};
 use crate::tabs::TabManager;
 use arboard::Clipboard;
 use std::path::PathBuf;
@@ -186,6 +186,11 @@ impl InputHandler {
         let has_sidebar_scroll = total_sidebar_h > screen_h;
         let bar_x = sidebar.width.saturating_sub(SCROLLBAR_THICKNESS);
 
+        let can_save = tabs
+            .active_tab()
+            .map(|t| t.buffer.is_modified)
+            .unwrap_or(false);
+
         if mx < sidebar.width {
             tabs.hovered_tab = None;
             tabs.hovered_close = None;
@@ -197,8 +202,12 @@ impl InputHandler {
                         sidebar.hovered_menu_header = true;
                     } else if sidebar.menu_expanded && cy < sidebar.menu_total_height() {
                         let item_idx = (cy - TAB_BAR_HEIGHT) / SIDEBAR_ROW_HEIGHT;
-                        if item_idx < MENU_ITEMS.len() {
-                            sidebar.hovered_menu_item = Some(MENU_ITEMS[item_idx].0);
+                        let items = sidebar.menu_items();
+                        if item_idx < items.len() {
+                            let item = items[item_idx].0;
+                            if item != MenuItem::Save || can_save {
+                                sidebar.hovered_menu_item = Some(item);
+                            }
                         }
                     } else if sidebar.root_folder.is_some() && cy >= sidebar.menu_total_height() {
                         let rel_y = cy - sidebar.menu_total_height();
@@ -392,6 +401,11 @@ impl InputHandler {
         let has_sidebar_scroll = total_sidebar_h > screen_h;
         let bar_x = sidebar.width.saturating_sub(SCROLLBAR_THICKNESS);
 
+        let can_save = tabs
+            .active_tab()
+            .map(|t| t.buffer.is_modified)
+            .unwrap_or(false);
+
         if mx < sidebar.width {
             if has_sidebar_scroll && mx >= bar_x {
                 let max_scroll = total_sidebar_h.saturating_sub(screen_h);
@@ -425,8 +439,12 @@ impl InputHandler {
                 }
                 if sidebar.menu_expanded && cy < sidebar.menu_total_height() {
                     let item_idx = (cy - TAB_BAR_HEIGHT) / SIDEBAR_ROW_HEIGHT;
-                    if item_idx < MENU_ITEMS.len() {
-                        return ActionEvent::Menu(MENU_ITEMS[item_idx].0);
+                    let items = sidebar.menu_items();
+                    if item_idx < items.len() {
+                        let item = items[item_idx].0;
+                        if item != MenuItem::Save || can_save {
+                            return ActionEvent::Menu(item);
+                        }
                     }
                 }
                 if sidebar.root_folder.is_some() && cy >= sidebar.menu_total_height() {
