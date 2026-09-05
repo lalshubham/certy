@@ -20,6 +20,7 @@ pub struct TabManager {
     pub hovered_tab: Option<usize>,
     pub hovered_close: Option<usize>,
     pub pending_close: Option<usize>,
+    pub closing_app: bool,
     pub hovered_modal_btn: Option<usize>,
     pub scroll_x: usize,
 }
@@ -32,6 +33,7 @@ impl TabManager {
             hovered_tab: None,
             hovered_close: None,
             pending_close: None,
+            closing_app: false,
             hovered_modal_btn: None,
             scroll_x: 0,
         }
@@ -43,6 +45,10 @@ impl TabManager {
 
     pub fn active_tab_mut(&mut self) -> Option<&mut Tab> {
         self.active_idx.and_then(|i| self.tabs.get_mut(i))
+    }
+
+    pub fn has_modified(&self) -> bool {
+        self.tabs.iter().any(|t| t.buffer.is_modified)
     }
 
     pub fn total_tabs_width(&self, char_w: usize) -> usize {

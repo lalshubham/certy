@@ -19,8 +19,9 @@ use tabs::TabManager;
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
-    event::WindowEvent,
+    event::{ElementState, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
+    keyboard::{KeyCode, NamedKey, PhysicalKey},
     window::{CursorIcon, Window, WindowId},
 };
 
@@ -80,6 +81,20 @@ struct App {
     active_cursor_icon: CursorIcon,
     current_title: String,
     event_proxy: EventLoopProxy<AppEvent>,
+}
+
+impl App {
+    fn trigger_app_close(&mut self, event_loop: &ActiveEventLoop) {
+        if self.tabs.has_modified() {
+            self.tabs.closing_app = true;
+            self.tabs.pending_close = None;
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+        } else {
+            event_loop.exit();
+        }
+    }
 }
 
 impl ApplicationHandler<AppEvent> for App {
@@ -308,7 +323,79 @@ impl ApplicationHandler<AppEvent> for App {
                         }
                         self.tabs.close_tab(idx);
                         let avail_w = renderer.width.saturating_sub(self.sidebar.width);
+                        self.tabs.clamp_scroll(cw, avail_w);
                         self.tabs.ensure_active_tab_visible(cw, avail_w);
+                        self.input.handle_cursor_move(
+                            self.input.mouse_x,
+                            self.input.mouse_y,
+                            &mut self.tabs,
+                            &mut self.sidebar,
+                            &layout,
+                            cw,
+                            lh,
+                            renderer.width,
+                            renderer.height,
+                        );
+                        update_window_title(
+                            window,
+                            &self.tabs,
+                            &self.sidebar,
+                            &mut self.current_title,
+                        );
+                        window.request_redraw();
+                    }
+                    ActionEvent::DiscardTab(idx) => {
+                        self.tabs.close_tab(idx);
+                        let avail_w = renderer.width.saturating_sub(self.sidebar.width);
+                        self.tabs.clamp_scroll(cw, avail_w);
+                        self.tabs.ensure_active_tab_visible(cw, avail_w);
+                        self.input.handle_cursor_move(
+                            self.input.mouse_x,
+                            self.input.mouse_y,
+                            &mut self.tabs,
+                            &mut self.sidebar,
+                            &layout,
+                            cw,
+                            lh,
+                            renderer.width,
+                            renderer.height,
+                        );
+                        update_window_title(
+                            window,
+                            &self.tabs,
+                            &self.sidebar,
+                            &mut self.current_title,
+                        );
+                        window.request_redraw();
+                    }
+                    ActionEvent::SaveAllAndExit => {
+                        for tab in &mut self.tabs.tabs {
+                            if tab.buffer.is_modified {
+                                let _ = tab.buffer.save();
+                            }
+                        }
+                        if self.sidebar.root_folder.is_some() {
+                            self.sidebar.refresh_folder();
+                        }
+                        event_loop.exit();
+                    }
+                    ActionEvent::DiscardAllAndExit => {
+                        event_loop.exit();
+                    }
+                    ActionEvent::CancelClose => {
+                        self.tabs.pending_close = None;
+                        self.tabs.closing_app = false;
+                        self.input.handle_cursor_move(
+                            self.input.mouse_x,
+                            self.input.mouse_y,
+                            &mut self.tabs,
+                            &mut self.sidebar,
+                            &layout,
+                            cw,
+                            lh,
+                            renderer.width,
+                            renderer.height,
+                        );
                         update_window_title(
                             window,
                             &self.tabs,
@@ -361,6 +448,14 @@ impl ApplicationHandler<AppEvent> for App {
             }
 
             WindowEvent::KeyboardInput { event, .. } => {
+                let is_alt = self.input.modifiers.alt_key();
+                let is_f4 = matches!(event.physical_key, PhysicalKey::Code(KeyCode::F4))
+                    || matches!(event.logical_key, winit::keyboard::Key::Named(NamedKey::F4));
+                if event.state == ElementState::Pressed && is_alt && is_f4 {
+                    self.trigger_app_close(event_loop);
+                    return;
+                }
+
                 if self
                     .input
                     .handle_key(&event, &mut self.tabs, &layout, &mut self.clipboard)
@@ -373,7 +468,9 @@ impl ApplicationHandler<AppEvent> for App {
                 }
             }
 
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                self.trigger_app_close(event_loop);
+            }
             _ => {}
         }
     }

@@ -1,5 +1,5 @@
 use crate::config::*;
-use crate::layout::{calc_thumb, ViewportLayout};
+use crate::layout::{calc_thumb, compute_modal_layout, ViewportLayout};
 use crate::sidebar::{MenuItem, Sidebar, MENU_ITEMS};
 use crate::tabs::TabManager;
 use arboard::Clipboard;
@@ -49,6 +49,10 @@ pub enum ActionEvent {
     Menu(MenuItem),
     OpenFile(PathBuf),
     SaveTab(usize),
+    DiscardTab(usize),
+    SaveAllAndExit,
+    DiscardAllAndExit,
+    CancelClose,
 }
 
 impl InputHandler {
@@ -58,7 +62,7 @@ impl InputHandler {
         tabs: &TabManager,
         sidebar: &Sidebar,
     ) -> CursorIcon {
-        if tabs.pending_close.is_some() {
+        if tabs.closing_app || tabs.pending_close.is_some() {
             return if tabs.hovered_modal_btn.is_some() {
                 CursorIcon::Pointer
             } else {
@@ -154,27 +158,15 @@ impl InputHandler {
 
         sidebar.clamp_scroll(screen_h);
 
-        if tabs.pending_close.is_some() {
-            let modal_w = 400;
-            let modal_h = 130;
-            let modal_x = (screen_w.saturating_sub(modal_w)) / 2;
-            let modal_y = (screen_h.saturating_sub(modal_h)) / 2;
-            let btn_y = modal_y + 76;
+        if let Some(modal) = compute_modal_layout(tabs, screen_w, screen_h, char_w, line_h) {
             let prev = tabs.hovered_modal_btn;
-
-            tabs.hovered_modal_btn = if my >= btn_y && my <= btn_y + 28 {
-                if mx >= modal_x + 130 && mx <= modal_x + 205 {
-                    Some(0)
-                } else if mx >= modal_x + 215 && mx <= modal_x + 300 {
-                    Some(1)
-                } else if mx >= modal_x + 310 && mx <= modal_x + 385 {
-                    Some(2)
-                } else {
-                    None
+            tabs.hovered_modal_btn = None;
+            for btn in &modal.buttons {
+                if mx >= btn.x && mx < btn.x + btn.w && my >= btn.y && my < btn.y + btn.h {
+                    tabs.hovered_modal_btn = Some(btn.id);
+                    break;
                 }
-            } else {
-                None
-            };
+            }
             return prev != tabs.hovered_modal_btn;
         }
 
@@ -365,32 +357,28 @@ impl InputHandler {
             return ActionEvent::None;
         }
 
-        if let Some(close_idx) = tabs.pending_close {
-            let modal_w = 400;
-            let modal_h = 130;
-            let modal_x = (screen_w.saturating_sub(modal_w)) / 2;
-            let modal_y = (screen_h.saturating_sub(modal_h)) / 2;
-            let btn_y = modal_y + 76;
-            let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
+        let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
 
-            if my >= btn_y && my <= btn_y + 28 {
-                if mx >= modal_x + 130 && mx <= modal_x + 205 {
-                    return ActionEvent::SaveTab(close_idx);
-                } else if mx >= modal_x + 215 && mx <= modal_x + 300 {
-                    tabs.close_tab(close_idx);
-                    let available_w = screen_w.saturating_sub(layout.content_left);
-                    tabs.clamp_scroll(char_w, available_w);
-                    self.update_tab_hover(tabs, layout, char_w);
-                    return ActionEvent::Redraw;
-                } else if mx >= modal_x + 310 && mx <= modal_x + 385 {
-                    tabs.pending_close = None;
-                    return ActionEvent::Redraw;
+        if let Some(modal) = compute_modal_layout(tabs, screen_w, screen_h, char_w, line_h) {
+            for btn in &modal.buttons {
+                if mx >= btn.x && mx < btn.x + btn.w && my >= btn.y && my < btn.y + btn.h {
+                    if tabs.closing_app {
+                        return match btn.id {
+                            0 => ActionEvent::SaveAllAndExit,
+                            1 => ActionEvent::DiscardAllAndExit,
+                            _ => ActionEvent::CancelClose,
+                        };
+                    } else if let Some(close_idx) = tabs.pending_close {
+                        return match btn.id {
+                            0 => ActionEvent::SaveTab(close_idx),
+                            1 => ActionEvent::DiscardTab(close_idx),
+                            _ => ActionEvent::CancelClose,
+                        };
+                    }
                 }
             }
             return ActionEvent::None;
         }
-
-        let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
 
         if (mx as i32 - sidebar.width as i32).abs() <= 4 {
             self.drag = DragState::SidebarResize {
@@ -469,6 +457,7 @@ impl InputHandler {
             if mx >= layout.content_left {
                 let available_w = screen_w.saturating_sub(layout.content_left);
                 if let Some(close_idx) = tabs.hovered_close {
+                    tabs.closing_app = false;
                     tabs.request_close(close_idx);
                     tabs.clamp_scroll(char_w, available_w);
                     self.update_tab_hover(tabs, layout, char_w);
@@ -686,7 +675,14 @@ impl InputHandler {
             return false;
         }
 
-        if tabs.pending_close.is_some() {
+        if tabs.closing_app || tabs.pending_close.is_some() {
+            if event.state == ElementState::Pressed
+                && matches!(event.logical_key, Key::Named(NamedKey::Escape))
+            {
+                tabs.closing_app = false;
+                tabs.pending_close = None;
+                return true;
+            }
             return false;
         }
 
@@ -818,6 +814,13 @@ impl InputHandler {
                 Key::Named(NamedKey::Backspace) => buffer.delete_backwards(),
                 Key::Named(NamedKey::Delete) => buffer.delete_forward(),
                 Key::Named(NamedKey::Enter) => buffer.insert_char('\n'),
+                Key::Named(NamedKey::Tab) => {
+                    if !is_ctrl {
+                        let (_, col) = buffer.cursor_pos();
+                        let spaces = 4 - (col % 4);
+                        buffer.insert_str(&"    "[..spaces]);
+                    }
+                }
                 Key::Named(NamedKey::ArrowLeft) => buffer.move_left(is_shift),
                 Key::Named(NamedKey::ArrowRight) => buffer.move_right(is_shift),
                 Key::Named(NamedKey::ArrowUp) => buffer.move_up(is_shift),

@@ -1,6 +1,6 @@
 use crate::config::*;
 use crate::font::FontManager;
-use crate::layout::{calc_thumb, compute_layout, ViewportLayout};
+use crate::layout::{calc_thumb, compute_layout, compute_modal_layout, ViewportLayout};
 use crate::sidebar::{Sidebar, MENU_ITEMS};
 use crate::tabs::TabManager;
 use softbuffer::{Context, Surface};
@@ -640,103 +640,95 @@ impl Renderer {
             );
         }
 
-        if let Some(close_idx) = tabs.pending_close {
-            if let Some(tab) = tabs.tabs.get(close_idx) {
-                let modal_w = 400;
-                let modal_h = 130;
-                let modal_x = (screen_w.saturating_sub(modal_w)) / 2;
-                let modal_y = (screen_h.saturating_sub(modal_h)) / 2;
+        if let Some(modal) = compute_modal_layout(tabs, screen_w, screen_h, cw, lh) {
+            draw_solid_rect(
+                &mut frame,
+                screen_w,
+                screen_h,
+                modal.x,
+                modal.y,
+                modal.w,
+                modal.h,
+                COLOR_MODAL_BG,
+            );
+            draw_solid_rect(
+                &mut frame,
+                screen_w,
+                screen_h,
+                modal.x,
+                modal.y,
+                modal.w,
+                1,
+                COLOR_MODAL_BORDER,
+            );
+            draw_solid_rect(
+                &mut frame,
+                screen_w,
+                screen_h,
+                modal.x,
+                modal.y + modal.h - 1,
+                modal.w,
+                1,
+                COLOR_MODAL_BORDER,
+            );
+            draw_solid_rect(
+                &mut frame,
+                screen_w,
+                screen_h,
+                modal.x,
+                modal.y,
+                1,
+                modal.h,
+                COLOR_MODAL_BORDER,
+            );
+            draw_solid_rect(
+                &mut frame,
+                screen_w,
+                screen_h,
+                modal.x + modal.w - 1,
+                modal.y,
+                1,
+                modal.h,
+                COLOR_MODAL_BORDER,
+            );
 
-                draw_solid_rect(
-                    &mut frame,
-                    screen_w,
-                    screen_h,
-                    modal_x,
-                    modal_y,
-                    modal_w,
-                    modal_h,
-                    COLOR_MODAL_BG,
-                );
-                draw_solid_rect(
-                    &mut frame,
-                    screen_w,
-                    screen_h,
-                    modal_x,
-                    modal_y,
-                    modal_w,
-                    1,
-                    COLOR_MODAL_BORDER,
-                );
-                draw_solid_rect(
-                    &mut frame,
-                    screen_w,
-                    screen_h,
-                    modal_x,
-                    modal_y + modal_h - 1,
-                    modal_w,
-                    1,
-                    COLOR_MODAL_BORDER,
-                );
-                draw_solid_rect(
-                    &mut frame,
-                    screen_w,
-                    screen_h,
-                    modal_x,
-                    modal_y,
-                    1,
-                    modal_h,
-                    COLOR_MODAL_BORDER,
-                );
-                draw_solid_rect(
-                    &mut frame,
-                    screen_w,
-                    screen_h,
-                    modal_x + modal_w - 1,
-                    modal_y,
-                    1,
-                    modal_h,
-                    COLOR_MODAL_BORDER,
-                );
-
-                let msg = format!("Save changes to \"{}\"?", tab.title);
+            for (text, tx, ty, color) in modal.text_lines {
                 draw_string(
                     &mut self.font_manager,
                     &mut frame,
-                    &msg,
-                    modal_x as i32 + 20,
-                    modal_y as i32 + 24,
+                    &text,
+                    tx as i32,
+                    ty as i32,
                     screen_w,
                     screen_h,
-                    COLOR_LINE_NUMBER_ACTIVE,
+                    color,
                 );
+            }
 
-                let btn_y = modal_y + 76;
-                let btns = [
-                    (0, "Save", modal_x + 130, 75, COLOR_BTN_BG),
-                    (1, "Discard", modal_x + 215, 85, COLOR_BTN_DANGER),
-                    (2, "Cancel", modal_x + 310, 75, COLOR_BTN_BG),
-                ];
+            for btn in modal.buttons {
+                let is_hovered = tabs.hovered_modal_btn == Some(btn.id);
+                let bg = if is_hovered {
+                    COLOR_BTN_HOVER
+                } else if btn.is_danger {
+                    COLOR_BTN_DANGER
+                } else {
+                    COLOR_BTN_BG
+                };
 
-                for (id, label, bx, bw, normal_bg) in btns {
-                    let is_hovered = tabs.hovered_modal_btn == Some(id);
-                    let bg = if is_hovered {
-                        COLOR_BTN_HOVER
-                    } else {
-                        normal_bg
-                    };
-                    draw_solid_rect(&mut frame, screen_w, screen_h, bx, btn_y, bw, 28, bg);
-                    let tx = bx + (bw.saturating_sub(label.len() * cw)) / 2;
-                    draw_string(
-                        &mut self.font_manager,
-                        &mut frame,
-                        label,
-                        tx as i32,
-                        btn_y as i32 + 6,
-                        screen_w,
-                        screen_h,
-                        COLOR_TAB_TEXT_ACTIVE,
-                    );
-                }
+                draw_solid_rect(
+                    &mut frame, screen_w, screen_h, btn.x, btn.y, btn.w, btn.h, bg,
+                );
+                let tx = btn.x + (btn.w.saturating_sub(btn.label.len() * cw)) / 2;
+                draw_string(
+                    &mut self.font_manager,
+                    &mut frame,
+                    btn.label,
+                    tx as i32,
+                    btn.y as i32 + 6,
+                    screen_w,
+                    screen_h,
+                    COLOR_TAB_TEXT_ACTIVE,
+                );
             }
         }
 
