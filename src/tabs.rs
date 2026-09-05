@@ -6,6 +6,14 @@ pub struct Tab {
     pub title: String,
 }
 
+impl Tab {
+    #[inline]
+    pub fn width(&self, char_w: usize) -> usize {
+        let dirty_len = if self.buffer.is_modified { 2 } else { 0 };
+        (self.title.len() + dirty_len) * char_w + 38
+    }
+}
+
 pub struct TabManager {
     pub tabs: Vec<Tab>,
     pub active_idx: Option<usize>,
@@ -13,6 +21,7 @@ pub struct TabManager {
     pub hovered_close: Option<usize>,
     pub pending_close: Option<usize>,
     pub hovered_modal_btn: Option<usize>,
+    pub scroll_x: usize,
 }
 
 impl TabManager {
@@ -24,6 +33,7 @@ impl TabManager {
             hovered_close: None,
             pending_close: None,
             hovered_modal_btn: None,
+            scroll_x: 0,
         }
     }
 
@@ -33,6 +43,43 @@ impl TabManager {
 
     pub fn active_tab_mut(&mut self) -> Option<&mut Tab> {
         self.active_idx.and_then(|i| self.tabs.get_mut(i))
+    }
+
+    pub fn total_tabs_width(&self, char_w: usize) -> usize {
+        self.tabs.iter().map(|t| t.width(char_w)).sum()
+    }
+
+    pub fn clamp_scroll(&mut self, char_w: usize, available_w: usize) {
+        let total_w = self.total_tabs_width(char_w);
+        let max_scroll = total_w.saturating_sub(available_w);
+        if self.scroll_x > max_scroll {
+            self.scroll_x = max_scroll;
+        }
+    }
+
+    pub fn ensure_active_tab_visible(&mut self, char_w: usize, available_w: usize) {
+        let active_idx = match self.active_idx {
+            Some(i) => i,
+            None => return,
+        };
+        let mut start_x = 0;
+        for i in 0..active_idx {
+            if let Some(t) = self.tabs.get(i) {
+                start_x += t.width(char_w);
+            }
+        }
+        let active_w = self
+            .tabs
+            .get(active_idx)
+            .map(|t| t.width(char_w))
+            .unwrap_or(0);
+
+        if start_x < self.scroll_x {
+            self.scroll_x = start_x;
+        } else if start_x + active_w > self.scroll_x + available_w {
+            self.scroll_x = (start_x + active_w).saturating_sub(available_w);
+        }
+        self.clamp_scroll(char_w, available_w);
     }
 
     pub fn open_file(&mut self, path: PathBuf) {
@@ -64,6 +111,8 @@ impl TabManager {
         }
         if self.tabs[idx].buffer.is_modified {
             self.pending_close = Some(idx);
+            self.hovered_tab = None;
+            self.hovered_close = None;
         } else {
             self.close_tab(idx);
         }
@@ -76,11 +125,14 @@ impl TabManager {
         self.tabs.remove(idx);
         if self.tabs.is_empty() {
             self.active_idx = None;
+            self.scroll_x = 0;
         } else if let Some(cur) = self.active_idx {
             if cur >= self.tabs.len() || cur == idx {
                 self.active_idx = Some(self.tabs.len().saturating_sub(1));
             }
         }
         self.pending_close = None;
+        self.hovered_tab = None;
+        self.hovered_close = None;
     }
 }

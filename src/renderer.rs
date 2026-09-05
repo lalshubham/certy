@@ -359,7 +359,7 @@ impl Renderer {
                 COLOR_TAB_BORDER,
             );
 
-            let mut tx = tabbar_x;
+            let mut cur_x = tabbar_x as i32 - tabs.scroll_x as i32;
             let tab_text_offset_y = (TAB_BAR_HEIGHT.saturating_sub(lh)) / 2;
 
             for (idx, tab) in tabs.tabs.iter().enumerate() {
@@ -367,12 +367,13 @@ impl Renderer {
                 let is_tab_hovered = tabs.hovered_tab == Some(idx);
                 let is_close_hovered = tabs.hovered_close == Some(idx);
 
-                let dirty = if tab.buffer.is_modified { "* " } else { "" };
-                let title_text = format!("{dirty}{}", tab.title);
-                let tw = (title_text.len() * cw) + 38;
+                let tw = tab.width(cw);
+                let tab_x0 = cur_x;
+                let tab_x1 = cur_x + tw as i32;
+                cur_x += tw as i32;
 
-                if tx + tw > screen_w {
-                    break;
+                if tab_x1 <= tabbar_x as i32 || tab_x0 >= screen_w as i32 {
+                    continue;
                 }
 
                 let bg = if is_active {
@@ -383,24 +384,28 @@ impl Renderer {
                     COLOR_TABBAR_BG
                 };
 
-                draw_solid_rect(
+                draw_solid_rect_clipped(
                     &mut frame,
                     screen_w,
                     screen_h,
-                    tx,
+                    tab_x0,
                     0,
                     tw,
                     TAB_BAR_HEIGHT - 1,
+                    tabbar_x,
+                    screen_w,
                     bg,
                 );
-                draw_solid_rect(
+                draw_solid_rect_clipped(
                     &mut frame,
                     screen_w,
                     screen_h,
-                    tx + tw - 1,
+                    tab_x1 - 1,
                     0,
                     1,
                     TAB_BAR_HEIGHT - 1,
+                    tabbar_x,
+                    screen_w,
                     COLOR_TAB_BORDER,
                 );
 
@@ -409,35 +414,42 @@ impl Renderer {
                 } else {
                     COLOR_TAB_TEXT_INACTIVE
                 };
-                draw_string(
+
+                let dirty = if tab.buffer.is_modified { "* " } else { "" };
+                let title_text = format!("{dirty}{}", tab.title);
+
+                draw_string_clipped(
                     &mut self.font_manager,
                     &mut frame,
                     &title_text,
-                    tx as i32 + 10,
+                    tab_x0 + 10,
                     tab_text_offset_y as i32,
+                    tabbar_x,
+                    screen_w,
                     screen_w,
                     screen_h,
                     text_color,
                 );
 
-                let close_x = tx + tw - 18;
+                let close_x = tab_x1 - 18;
                 let close_color = if is_close_hovered {
                     COLOR_TAB_CLOSE_HOVER
                 } else {
                     text_color
                 };
-                draw_string(
+
+                draw_string_clipped(
                     &mut self.font_manager,
                     &mut frame,
                     "x",
-                    close_x as i32,
+                    close_x,
                     tab_text_offset_y as i32,
+                    tabbar_x,
+                    screen_w,
                     screen_w,
                     screen_h,
                     close_color,
                 );
-
-                tx += tw;
             }
         }
 
@@ -729,6 +741,61 @@ impl Renderer {
         }
 
         frame.present().expect("Failed to present frame");
+    }
+}
+
+#[inline(always)]
+fn draw_solid_rect_clipped(
+    buf: &mut [u32],
+    screen_w: usize,
+    screen_h: usize,
+    x: i32,
+    y: i32,
+    w: usize,
+    h: usize,
+    clip_min_x: usize,
+    clip_max_x: usize,
+    color: u32,
+) {
+    if y >= screen_h as i32 || x >= clip_max_x as i32 {
+        return;
+    }
+    let x0 = (x.max(clip_min_x as i32) as usize).min(clip_max_x);
+    let x1 = ((x + w as i32).max(clip_min_x as i32) as usize).min(clip_max_x);
+    let y0 = y.max(0) as usize;
+    let y1 = ((y + h as i32).max(0) as usize).min(screen_h);
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+    for row in y0..y1 {
+        let offset = row * screen_w;
+        buf[offset + x0..offset + x1].fill(color);
+    }
+}
+
+#[inline(always)]
+fn draw_string_clipped(
+    fonts: &mut FontManager,
+    frame: &mut [u32],
+    text: &str,
+    start_x: i32,
+    start_y: i32,
+    clip_min_x: usize,
+    clip_max_x: usize,
+    screen_w: usize,
+    screen_h: usize,
+    color: u32,
+) {
+    let mut x = start_x;
+    let cw = fonts.char_width as i32;
+    for ch in text.chars() {
+        if x >= clip_min_x as i32 && x + cw <= clip_max_x as i32 {
+            fonts.draw_char(frame, ch, x, start_y, screen_w, screen_h, color);
+        }
+        x += cw;
+        if x >= clip_max_x as i32 {
+            break;
+        }
     }
 }
 

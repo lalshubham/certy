@@ -106,6 +106,11 @@ impl ApplicationHandler<AppEvent> for App {
         match event {
             AppEvent::OpenFile(path) => {
                 self.tabs.open_file(path);
+                if let Some(ref r) = self.renderer {
+                    let avail_w = r.width.saturating_sub(self.sidebar.width);
+                    self.tabs
+                        .ensure_active_tab_visible(r.font_manager.char_width, avail_w);
+                }
             }
             AppEvent::OpenFolder(path) => {
                 self.sidebar.open_folder(path);
@@ -118,6 +123,11 @@ impl ApplicationHandler<AppEvent> for App {
                     }
                 }
                 self.tabs.open_file(path);
+                if let Some(ref r) = self.renderer {
+                    let avail_w = r.width.saturating_sub(self.sidebar.width);
+                    self.tabs
+                        .ensure_active_tab_visible(r.font_manager.char_width, avail_w);
+                }
             }
             AppEvent::CreateFolder(path) => {
                 let _ = fs::create_dir_all(&path);
@@ -163,6 +173,8 @@ impl ApplicationHandler<AppEvent> for App {
 
             WindowEvent::Resized(size) => {
                 renderer.resize(size.width, size.height);
+                let avail_w = renderer.width.saturating_sub(self.sidebar.width);
+                self.tabs.clamp_scroll(cw, avail_w);
                 if let Some(tab) = self.tabs.active_tab_mut() {
                     let l = renderer.layout(tab.buffer.text().len_lines(), self.sidebar.width);
                     tab.buffer.fit_view(l.visible_lines, l.visible_cols);
@@ -277,6 +289,8 @@ impl ApplicationHandler<AppEvent> for App {
                     },
                     ActionEvent::OpenFile(path) => {
                         self.tabs.open_file(path);
+                        let avail_w = renderer.width.saturating_sub(self.sidebar.width);
+                        self.tabs.ensure_active_tab_visible(cw, avail_w);
                         update_window_title(
                             window,
                             &self.tabs,
@@ -293,6 +307,8 @@ impl ApplicationHandler<AppEvent> for App {
                             self.sidebar.refresh_folder();
                         }
                         self.tabs.close_tab(idx);
+                        let avail_w = renderer.width.saturating_sub(self.sidebar.width);
+                        self.tabs.ensure_active_tab_visible(cw, avail_w);
                         update_window_title(
                             window,
                             &self.tabs,
@@ -337,6 +353,7 @@ impl ApplicationHandler<AppEvent> for App {
                     &layout,
                     cw,
                     lh,
+                    renderer.width,
                     renderer.height,
                 ) {
                     window.request_redraw();

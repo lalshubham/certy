@@ -113,6 +113,29 @@ impl InputHandler {
         }
     }
 
+    fn update_tab_hover(&self, tabs: &mut TabManager, layout: &ViewportLayout, char_w: usize) {
+        tabs.hovered_tab = None;
+        tabs.hovered_close = None;
+        let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
+        if !tabs.tabs.is_empty() && my < TAB_BAR_HEIGHT && mx >= layout.content_left {
+            let mx_i32 = mx as i32;
+            let mut tx = layout.content_left as i32 - tabs.scroll_x as i32;
+            for (idx, tab) in tabs.tabs.iter().enumerate() {
+                let tw = tab.width(char_w) as i32;
+                let tab_x0 = tx;
+                let tab_x1 = tx + tw;
+                if mx_i32 >= tab_x0 && mx_i32 < tab_x1 {
+                    tabs.hovered_tab = Some(idx);
+                    if mx_i32 >= tab_x1 - 20 && mx_i32 <= tab_x1 - 4 {
+                        tabs.hovered_close = Some(idx);
+                    }
+                    break;
+                }
+                tx += tw;
+            }
+        }
+    }
+
     pub fn handle_cursor_move(
         &mut self,
         x: f64,
@@ -166,14 +189,14 @@ impl InputHandler {
         sidebar.hovered_menu_item = None;
         sidebar.hovered_root_header = false;
         sidebar.hovered_tree_row = None;
-        tabs.hovered_tab = None;
-        tabs.hovered_close = None;
 
         let total_sidebar_h = sidebar.total_content_height();
         let has_sidebar_scroll = total_sidebar_h > screen_h;
         let bar_x = sidebar.width.saturating_sub(SCROLLBAR_THICKNESS);
 
         if mx < sidebar.width {
+            tabs.hovered_tab = None;
+            tabs.hovered_close = None;
             if !(has_sidebar_scroll && mx >= bar_x) {
                 let content_y = my as i32 + sidebar.scroll_y as i32;
                 if content_y >= 0 {
@@ -199,20 +222,8 @@ impl InputHandler {
                     }
                 }
             }
-        } else if !tabs.tabs.is_empty() && my < TAB_BAR_HEIGHT {
-            let mut tx = layout.content_left;
-            for (idx, tab) in tabs.tabs.iter().enumerate() {
-                let dirty = if tab.buffer.is_modified { "* " } else { "" };
-                let tw = (format!("{dirty}{}", tab.title).len() * char_w) + 38;
-                if mx >= tx && mx < tx + tw {
-                    tabs.hovered_tab = Some(idx);
-                    if mx >= tx + tw - 20 && mx <= tx + tw - 4 {
-                        tabs.hovered_close = Some(idx);
-                    }
-                    break;
-                }
-                tx += tw;
-            }
+        } else {
+            self.update_tab_hover(tabs, layout, char_w);
         }
 
         let mut changed = prev_sh != sidebar.hovered_menu_header
@@ -367,6 +378,9 @@ impl InputHandler {
                     return ActionEvent::SaveTab(close_idx);
                 } else if mx >= modal_x + 215 && mx <= modal_x + 300 {
                     tabs.close_tab(close_idx);
+                    let available_w = screen_w.saturating_sub(layout.content_left);
+                    tabs.clamp_scroll(char_w, available_w);
+                    self.update_tab_hover(tabs, layout, char_w);
                     return ActionEvent::Redraw;
                 } else if mx >= modal_x + 310 && mx <= modal_x + 385 {
                     tabs.pending_close = None;
@@ -452,13 +466,20 @@ impl InputHandler {
         }
 
         if !tabs.tabs.is_empty() && my < TAB_BAR_HEIGHT {
-            if let Some(close_idx) = tabs.hovered_close {
-                tabs.request_close(close_idx);
-                return ActionEvent::Redraw;
-            }
-            if let Some(tab_idx) = tabs.hovered_tab {
-                tabs.active_idx = Some(tab_idx);
-                return ActionEvent::Redraw;
+            if mx >= layout.content_left {
+                let available_w = screen_w.saturating_sub(layout.content_left);
+                if let Some(close_idx) = tabs.hovered_close {
+                    tabs.request_close(close_idx);
+                    tabs.clamp_scroll(char_w, available_w);
+                    self.update_tab_hover(tabs, layout, char_w);
+                    return ActionEvent::Redraw;
+                }
+                if let Some(tab_idx) = tabs.hovered_tab {
+                    tabs.active_idx = Some(tab_idx);
+                    tabs.ensure_active_tab_visible(char_w, available_w);
+                    self.update_tab_hover(tabs, layout, char_w);
+                    return ActionEvent::Redraw;
+                }
             }
             return ActionEvent::None;
         }
@@ -561,6 +582,7 @@ impl InputHandler {
         layout: &ViewportLayout,
         char_w: usize,
         line_h: usize,
+        screen_w: usize,
         screen_h: usize,
     ) -> bool {
         let (lines, cols) = match delta {
@@ -583,7 +605,8 @@ impl InputHandler {
             }
         };
 
-        let mx = self.mouse_x as usize;
+        let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
+
         if mx < sidebar.width {
             let total_h = sidebar.total_content_height();
             if total_h > screen_h {
@@ -595,6 +618,22 @@ impl InputHandler {
                     sidebar.scroll_y = next_scroll;
                     return true;
                 }
+            }
+            return false;
+        }
+
+        if my < TAB_BAR_HEIGHT {
+            let available_w = screen_w.saturating_sub(layout.content_left);
+            let scroll_delta = if cols != 0 { -cols } else { -lines };
+            let scroll_amount = scroll_delta * (char_w as i32 * 3);
+            let total_w = tabs.total_tabs_width(char_w);
+            let max_scroll = total_w.saturating_sub(available_w);
+            let next_scroll =
+                (tabs.scroll_x as i32 + scroll_amount).clamp(0, max_scroll as i32) as usize;
+            if tabs.scroll_x != next_scroll {
+                tabs.scroll_x = next_scroll;
+                self.update_tab_hover(tabs, layout, char_w);
+                return true;
             }
             return false;
         }
