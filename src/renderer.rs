@@ -754,27 +754,89 @@ impl Renderer {
                     break;
                 }
 
+                if let Some(((s_line, s_col), (e_line, e_col))) = terminal.selection_range() {
+                    if line_idx >= s_line && line_idx <= e_line {
+                        let text_len = terminal
+                            .get_line_text(line_idx)
+                            .map(|s| s.chars().count())
+                            .unwrap_or(0);
+                        let line_s_col = if line_idx == s_line { s_col } else { 0 };
+                        let line_e_col = if line_idx == e_line { e_col } else { text_len };
+
+                        let c0 = line_s_col.min(line_e_col);
+                        let c1 = line_s_col.max(line_e_col);
+
+                        if c0 < c1 && c1 > terminal.scroll_col {
+                            let vis_c0 = c0.saturating_sub(terminal.scroll_col);
+                            let vis_c1 = c1.saturating_sub(terminal.scroll_col);
+                            let sel_x0 = text_left + vis_c0 * cw;
+                            let sel_x1 = (text_left + vis_c1 * cw).min(text_right);
+                            if sel_x0 < sel_x1 {
+                                draw_solid_rect(
+                                    &mut frame,
+                                    screen_w,
+                                    screen_h,
+                                    sel_x0,
+                                    py,
+                                    sel_x1 - sel_x0,
+                                    lh,
+                                    COLOR_SELECTION,
+                                );
+                            }
+                        }
+                    }
+                }
+
+                let base_px = text_left as i32 - (terminal.scroll_col * cw) as i32;
+
                 if line_idx < terminal.lines.len() {
-                    let px = text_left as i32 - (terminal.scroll_col * cw) as i32;
-                    draw_string_clipped(
-                        &mut self.font_manager,
-                        &mut frame,
-                        &terminal.lines[line_idx],
-                        px,
-                        py as i32,
-                        text_left,
-                        text_right,
-                        screen_w,
-                        screen_h,
-                        COLOR_TEXT_DEFAULT,
-                    );
+                    let tline = &terminal.lines[line_idx];
+                    if let Some(ref p) = tline.prompt {
+                        draw_string_clipped(
+                            &mut self.font_manager,
+                            &mut frame,
+                            p,
+                            base_px,
+                            py as i32,
+                            text_left,
+                            text_right,
+                            screen_w,
+                            screen_h,
+                            0xFF4EC9B0,
+                        );
+                        let cmd_px = base_px + (p.chars().count() * cw) as i32;
+                        draw_string_clipped(
+                            &mut self.font_manager,
+                            &mut frame,
+                            &tline.content,
+                            cmd_px,
+                            py as i32,
+                            text_left,
+                            text_right,
+                            screen_w,
+                            screen_h,
+                            COLOR_TEXT_DEFAULT,
+                        );
+                    } else {
+                        draw_string_clipped(
+                            &mut self.font_manager,
+                            &mut frame,
+                            &tline.content,
+                            base_px,
+                            py as i32,
+                            text_left,
+                            text_right,
+                            screen_w,
+                            screen_h,
+                            COLOR_TEXT_DEFAULT,
+                        );
+                    }
                 } else if line_idx == terminal.lines.len() && !terminal.partial_line.is_empty() {
-                    let px = text_left as i32 - (terminal.scroll_col * cw) as i32;
                     draw_string_clipped(
                         &mut self.font_manager,
                         &mut frame,
                         &terminal.partial_line,
-                        px,
+                        base_px,
                         py as i32,
                         text_left,
                         text_right,
@@ -792,12 +854,11 @@ impl Renderer {
                             })
                 {
                     let p = terminal.prompt();
-                    let px = text_left as i32 - (terminal.scroll_col * cw) as i32;
                     draw_string_clipped(
                         &mut self.font_manager,
                         &mut frame,
                         &p,
-                        px,
+                        base_px,
                         py as i32,
                         text_left,
                         text_right,
@@ -805,7 +866,7 @@ impl Renderer {
                         screen_h,
                         0xFF4EC9B0,
                     );
-                    let input_x = px + (p.chars().count() * cw) as i32;
+                    let input_x = base_px + (p.chars().count() * cw) as i32;
                     draw_string_clipped(
                         &mut self.font_manager,
                         &mut frame,

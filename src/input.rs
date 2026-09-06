@@ -314,35 +314,42 @@ impl InputHandler {
                 }
             }
             DragState::TerminalSelecting => {
-                if !terminal.is_running {
-                    let text_left = layout.content_left + 14;
+                let text_left = layout.content_left + 14;
+                let header_h = 26;
+                let body_y = screen_h.saturating_sub(terminal.height) + header_h;
+                let row = my.saturating_sub(body_y + 4) / line_h.max(1);
+                let total_l = terminal.total_lines();
+                let line_idx = (terminal.scroll_line + row).min(total_l.saturating_sub(1));
+
+                let col = if (mx as i32) <= (text_left as i32) {
+                    terminal.scroll_col
+                } else {
+                    let rel_x = mx - text_left;
+                    terminal.scroll_col + (rel_x / char_w.max(1))
+                };
+                let line_len = terminal
+                    .get_line_text(line_idx)
+                    .map(|s| s.chars().count())
+                    .unwrap_or(0);
+                let clamped_col = col.min(line_len);
+                terminal.selection_end = Some((line_idx, clamped_col));
+
+                let active_line_idx = total_l.saturating_sub(1);
+                if !terminal.is_running && line_idx == active_line_idx {
+                    let p_len = terminal.prompt().chars().count();
+                    let cur = clamped_col
+                        .saturating_sub(p_len)
+                        .min(terminal.current_input.chars().count());
+                    terminal.cursor_col = cur;
                     let vbar_x = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
                     let vis_cols = if char_w > 0 {
                         vbar_x.saturating_sub(text_left) / char_w
                     } else {
                         0
                     };
-                    let p = terminal.prompt();
-                    let prompt_cols = p.chars().count();
-                    let input_start_x = (text_left as i32) - (terminal.scroll_col * char_w) as i32
-                        + (prompt_cols * char_w) as i32;
-                    let new_col = if (mx as i32) <= input_start_x {
-                        0
-                    } else {
-                        let rel_x = (mx as i32) - input_start_x;
-                        let col = if char_w > 0 {
-                            (rel_x as usize + (char_w / 2)) / char_w
-                        } else {
-                            0
-                        };
-                        col.min(terminal.current_input.chars().count())
-                    };
-                    if terminal.cursor_col != new_col {
-                        terminal.cursor_col = new_col;
-                        terminal.ensure_cursor_visible(vis_cols);
-                        changed = true;
-                    }
+                    terminal.ensure_cursor_visible(vis_cols);
                 }
+                changed = true;
             }
             DragState::TerminalVertical {
                 start_y,
@@ -510,6 +517,12 @@ impl InputHandler {
                     active_tab.buffer.selection_anchor = None;
                 }
             }
+            if let DragState::TerminalSelecting = self.drag {
+                if terminal.selection_anchor == terminal.selection_end {
+                    terminal.selection_anchor = None;
+                    terminal.selection_end = None;
+                }
+            }
             self.drag = DragState::None;
             return if was_dragging {
                 ActionEvent::Redraw
@@ -649,44 +662,38 @@ impl InputHandler {
                 } else {
                     0
                 };
-                let vis_lines = terminal.vis_rows(line_h);
+                let row = my.saturating_sub(body_y + 4) / line_h.max(1);
+                let line_idx = terminal.scroll_line + row;
+                let col = if (mx as i32) < (text_left as i32) {
+                    terminal.scroll_col
+                } else {
+                    terminal.scroll_col + ((mx - text_left) / char_w.max(1))
+                };
 
-                if !terminal.is_running {
-                    let prompt_line_idx = terminal.lines.len()
-                        + if !terminal.partial_line.is_empty() {
-                            1
-                        } else {
-                            0
-                        };
-                    if prompt_line_idx >= terminal.scroll_line {
-                        let row = prompt_line_idx - terminal.scroll_line;
-                        if row < vis_lines {
-                            let line_y = body_y + 4 + row * line_h;
-                            if my >= line_y && my < line_y + line_h {
-                                let p = terminal.prompt();
-                                let prompt_cols = p.chars().count();
-                                let input_start_x = (text_left as i32)
-                                    - (terminal.scroll_col * char_w) as i32
-                                    + (prompt_cols * char_w) as i32;
-                                if (mx as i32) <= input_start_x {
-                                    terminal.cursor_col = 0;
-                                } else {
-                                    let rel_x = (mx as i32) - input_start_x;
-                                    let col_clicked = if char_w > 0 {
-                                        (rel_x as usize + (char_w / 2)) / char_w
-                                    } else {
-                                        0
-                                    };
-                                    let max_len = terminal.current_input.chars().count();
-                                    terminal.cursor_col = col_clicked.min(max_len);
-                                }
-                                terminal.ensure_cursor_visible(vis_cols);
-                                self.drag = DragState::TerminalSelecting;
-                                return ActionEvent::Redraw;
-                            }
-                        }
+                let total_l = terminal.total_lines();
+                if line_idx < total_l {
+                    let line_len = terminal
+                        .get_line_text(line_idx)
+                        .map(|s| s.chars().count())
+                        .unwrap_or(0);
+                    let clamped_col = col.min(line_len);
+                    terminal.selection_anchor = Some((line_idx, clamped_col));
+                    terminal.selection_end = Some((line_idx, clamped_col));
+
+                    let active_line_idx = total_l.saturating_sub(1);
+                    if !terminal.is_running && line_idx == active_line_idx {
+                        let p_len = terminal.prompt().chars().count();
+                        let cur = clamped_col
+                            .saturating_sub(p_len)
+                            .min(terminal.current_input.chars().count());
+                        terminal.cursor_col = cur;
+                        terminal.ensure_cursor_visible(vis_cols);
                     }
+                } else {
+                    terminal.selection_anchor = None;
+                    terminal.selection_end = None;
                 }
+                self.drag = DragState::TerminalSelecting;
                 return ActionEvent::Redraw;
             }
         }
@@ -1067,17 +1074,57 @@ impl InputHandler {
                 0
             };
 
-            if is_ctrl && matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyC)) {
+            let is_c = matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyC))
+                || match &event.logical_key {
+                    Key::Character(c) => c.eq_ignore_ascii_case("c") || c == "\u{3}",
+                    _ => false,
+                };
+            let is_v = matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyV))
+                || match &event.logical_key {
+                    Key::Character(c) => c.eq_ignore_ascii_case("v") || c == "\u{16}",
+                    _ => false,
+                };
+
+            if is_ctrl && is_c {
+                if let Some(text) = terminal.selected_text() {
+                    if let Some(cb) = clipboard.as_mut() {
+                        let _ = cb.set_text(text);
+                    }
+                    return true;
+                }
                 terminal.interrupt(vis_rows);
                 return true;
             }
+
+            if is_ctrl && is_v {
+                if let Some(cb) = clipboard.as_mut() {
+                    if let Ok(text) = cb.get_text() {
+                        for ch in text.chars() {
+                            if ch != '\n' && ch != '\r' {
+                                terminal.insert_char(ch);
+                            }
+                        }
+                        terminal.selection_anchor = None;
+                        terminal.selection_end = None;
+                        terminal.ensure_cursor_visible(vis_cols);
+                        return true;
+                    }
+                }
+                return false;
+            }
+
             if is_ctrl && matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyL)) {
                 terminal.lines.clear();
                 terminal.partial_line.clear();
                 terminal.scroll_line = 0;
                 terminal.scroll_col = 0;
+                terminal.selection_anchor = None;
+                terminal.selection_end = None;
                 return true;
             }
+
+            terminal.selection_anchor = None;
+            terminal.selection_end = None;
 
             match &event.logical_key {
                 Key::Named(NamedKey::Enter) => {
