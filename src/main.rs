@@ -13,6 +13,7 @@ use input::{ActionEvent, InputHandler};
 use layout::compute_layout;
 use renderer::Renderer;
 use sidebar::{MenuItem, Sidebar};
+use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -96,6 +97,11 @@ fn save_session(sidebar: &Sidebar, tabs: &TabManager) {
         let mut content = String::new();
         if let Some(ref root) = sidebar.root_folder {
             content.push_str(&format!("folder:{}\n", root.display()));
+        }
+        for node in &sidebar.nodes {
+            if node.is_dir && node.is_expanded {
+                content.push_str(&format!("expanded:{}\n", node.path.display()));
+            }
         }
         if let Some(active) = tabs.active_idx {
             content.push_str(&format!("active:{}\n", active));
@@ -188,6 +194,8 @@ impl App {
         if let Some(path) = session_path() {
             if let Ok(content) = fs::read_to_string(path) {
                 let mut saved_active: Option<usize> = None;
+                let mut saved_folder: Option<PathBuf> = None;
+                let mut expanded_dirs: HashSet<PathBuf> = HashSet::new();
                 let rec_dir = recovery_dir();
 
                 struct SavedTab {
@@ -203,10 +211,9 @@ impl App {
 
                 for line in content.lines() {
                     if let Some(f) = line.strip_prefix("folder:") {
-                        let p = PathBuf::from(f);
-                        if p.is_dir() {
-                            self.sidebar.open_folder(p);
-                        }
+                        saved_folder = Some(PathBuf::from(f));
+                    } else if let Some(e) = line.strip_prefix("expanded:") {
+                        expanded_dirs.insert(PathBuf::from(e));
                     } else if let Some(a) = line.strip_prefix("active:") {
                         saved_active = a.parse().ok();
                     } else if let Some(f) = line.strip_prefix("file:") {
@@ -237,6 +244,12 @@ impl App {
                 }
                 if let Some(tab) = current_tab.take() {
                     saved_tabs.push(tab);
+                }
+
+                if let Some(p) = saved_folder {
+                    if p.is_dir() {
+                        self.sidebar.open_folder_with_expanded(p, &expanded_dirs);
+                    }
                 }
 
                 for stab in saved_tabs {
@@ -731,9 +744,6 @@ impl ApplicationHandler<AppEvent> for App {
                     .input
                     .handle_key(&event, &mut self.tabs, &layout, &mut self.clipboard)
                 {
-                    if self.sidebar.root_folder.is_some() {
-                        self.sidebar.refresh_folder();
-                    }
                     save_session(&self.sidebar, &self.tabs);
                     update_window_title(
                         &window,

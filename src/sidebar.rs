@@ -1,4 +1,5 @@
 use crate::config::{SIDEBAR_INITIAL_WIDTH, SIDEBAR_ROW_HEIGHT, TAB_BAR_HEIGHT};
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 
@@ -121,6 +122,13 @@ impl Sidebar {
         self.scroll_y = 0;
     }
 
+    pub fn open_folder_with_expanded(&mut self, path: PathBuf, expanded: &HashSet<PathBuf>) {
+        self.root_folder = Some(path.clone());
+        self.root_expanded = true;
+        self.nodes = build_dir_tree(&path, 0, expanded);
+        self.scroll_y = 0;
+    }
+
     pub fn close_folder(&mut self) {
         self.root_folder = None;
         self.nodes.clear();
@@ -129,7 +137,13 @@ impl Sidebar {
 
     pub fn refresh_folder(&mut self) {
         if let Some(root) = self.root_folder.clone() {
-            self.nodes = read_dir_nodes(&root, 0);
+            let expanded: HashSet<PathBuf> = self
+                .nodes
+                .iter()
+                .filter(|n| n.is_dir && n.is_expanded)
+                .map(|n| n.path.clone())
+                .collect();
+            self.nodes = build_dir_tree(&root, 0, &expanded);
         }
     }
 
@@ -160,6 +174,22 @@ impl Sidebar {
             }
         }
     }
+}
+
+fn build_dir_tree(dir: &PathBuf, depth: usize, expanded: &HashSet<PathBuf>) -> Vec<FileNode> {
+    let mut result = Vec::new();
+    let entries = read_dir_nodes(dir, depth);
+    for mut node in entries {
+        if node.is_dir && expanded.contains(&node.path) {
+            node.is_expanded = true;
+            let children = build_dir_tree(&node.path, depth + 1, expanded);
+            result.push(node);
+            result.extend(children);
+        } else {
+            result.push(node);
+        }
+    }
+    result
 }
 
 fn read_dir_nodes(dir: &PathBuf, depth: usize) -> Vec<FileNode> {
