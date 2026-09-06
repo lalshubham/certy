@@ -2,6 +2,8 @@ use crate::config::FONT_SIZE;
 use fontdue::{Font, FontSettings, Metrics};
 use std::collections::HashMap;
 
+const FONT_DATA: &[u8] = include_bytes!("../assets/font.ttf");
+
 pub struct CachedGlyph {
     pub metrics: Metrics,
     pub bitmap: Vec<u8>,
@@ -17,19 +19,9 @@ pub struct FontManager {
 
 impl FontManager {
     pub fn new() -> Self {
-        let paths = [
-            "/usr/share/fonts/google-noto-sans-mono-fonts/NotoSansMono-Regular.ttf",
-            "/usr/share/fonts/dejavu-sans-mono-fonts/DejaVuSansMono.ttf",
-            "/usr/share/fonts/liberation-mono-fonts/LiberationMono-Regular.ttf",
-            "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
-        ];
+        let font = Font::from_bytes(FONT_DATA, FontSettings::default())
+            .expect("Invalid font file data in assets/font.ttf");
 
-        let bytes = paths
-            .iter()
-            .find_map(|path| std::fs::read(path).ok())
-            .expect("No monospace font found on system.");
-
-        let font = Font::from_bytes(bytes, FontSettings::default()).expect("Invalid font data");
         let metrics = font
             .horizontal_line_metrics(FONT_SIZE)
             .expect("Missing horizontal metrics");
@@ -44,7 +36,11 @@ impl FontManager {
             cache.insert(ch, CachedGlyph { metrics: m, bitmap });
         }
 
-        let char_width = cache.get(&'M').unwrap().metrics.advance_width.ceil() as usize;
+        let char_width = cache
+            .get(&'M')
+            .or_else(|| cache.get(&'0'))
+            .map(|g| g.metrics.advance_width.round() as usize)
+            .unwrap_or(9);
 
         Self {
             font,
@@ -107,6 +103,10 @@ fn blend_alpha(bg: u32, fg: u32, alpha: u8) -> u32 {
     if alpha == 255 {
         return fg;
     }
+    if alpha == 0 {
+        return bg;
+    }
+
     let a = alpha as u32;
     let inv = 255 - a;
 

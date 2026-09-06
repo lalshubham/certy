@@ -5,11 +5,11 @@ use std::path::PathBuf;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MenuItem {
+    Save,
     NewFile,
     NewFolder,
     OpenFile,
     OpenFolder,
-    Save,
     Terminal,
     CloseFolder,
     Exit,
@@ -60,11 +60,11 @@ impl Sidebar {
             (MenuItem::Exit, "Exit")
         };
         [
+            (MenuItem::Save, "Save"),
             (MenuItem::NewFile, "New File"),
             (MenuItem::NewFolder, "New Folder"),
             (MenuItem::OpenFile, "Open File"),
             (MenuItem::OpenFolder, "Open Folder"),
-            (MenuItem::Save, "Save"),
             (MenuItem::Terminal, "Terminal"),
             last,
         ]

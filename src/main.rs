@@ -34,9 +34,9 @@ use winit::{
 
 #[derive(Debug)]
 pub enum AppEvent {
+    SaveNewFile(PathBuf),
     OpenFile(PathBuf),
     OpenFolder(PathBuf),
-    SaveNewFile(PathBuf),
     CreateFolder(PathBuf),
 }
 
@@ -364,23 +364,6 @@ impl ApplicationHandler<AppEvent> for App {
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) {
         match event {
-            AppEvent::OpenFile(path) => {
-                self.tabs.open_file(path);
-                save_session(&self.sidebar, &self.tabs, &self.terminal);
-                if let Some(ref r) = self.renderer {
-                    let avail_w = r.width.saturating_sub(self.sidebar.width);
-                    self.tabs
-                        .ensure_active_tab_visible(r.font_manager.char_width, avail_w);
-                }
-            }
-            AppEvent::OpenFolder(path) => {
-                self.terminal.default_cwd = path.clone();
-                for tab in &mut self.terminal.tabs {
-                    tab.cwd = path.clone();
-                }
-                self.sidebar.open_folder(path);
-                save_session(&self.sidebar, &self.tabs, &self.terminal);
-            }
             AppEvent::SaveNewFile(path) => {
                 let _ = fs::File::create(&path);
                 if let Some(ref root) = self.sidebar.root_folder {
@@ -398,6 +381,23 @@ impl ApplicationHandler<AppEvent> for App {
                     self.tabs
                         .ensure_active_tab_visible(r.font_manager.char_width, avail_w);
                 }
+            }
+            AppEvent::OpenFile(path) => {
+                self.tabs.open_file(path);
+                save_session(&self.sidebar, &self.tabs, &self.terminal);
+                if let Some(ref r) = self.renderer {
+                    let avail_w = r.width.saturating_sub(self.sidebar.width);
+                    self.tabs
+                        .ensure_active_tab_visible(r.font_manager.char_width, avail_w);
+                }
+            }
+            AppEvent::OpenFolder(path) => {
+                self.terminal.default_cwd = path.clone();
+                for tab in &mut self.terminal.tabs {
+                    tab.cwd = path.clone();
+                }
+                self.sidebar.open_folder(path);
+                save_session(&self.sidebar, &self.tabs, &self.terminal);
             }
             AppEvent::CreateFolder(path) => {
                 let _ = fs::create_dir_all(&path);
@@ -572,48 +572,6 @@ impl ApplicationHandler<AppEvent> for App {
                     screen_h,
                 ) {
                     ActionEvent::Menu(item) => match item {
-                        MenuItem::NewFile => {
-                            let proxy = self.event_proxy.clone();
-                            let root_opt = self.sidebar.root_folder.clone();
-                            std::thread::spawn(move || {
-                                let mut dialog = rfd::FileDialog::new().set_title("New File");
-                                if let Some(root) = root_opt {
-                                    dialog = dialog.set_directory(&root);
-                                }
-                                if let Some(path) = dialog.save_file() {
-                                    let _ = proxy.send_event(AppEvent::SaveNewFile(path));
-                                }
-                            });
-                        }
-                        MenuItem::NewFolder => {
-                            let proxy = self.event_proxy.clone();
-                            let root_opt = self.sidebar.root_folder.clone();
-                            std::thread::spawn(move || {
-                                let mut dialog = rfd::FileDialog::new().set_title("New Folder");
-                                if let Some(root) = root_opt {
-                                    dialog = dialog.set_directory(&root);
-                                }
-                                if let Some(path) = dialog.save_file() {
-                                    let _ = proxy.send_event(AppEvent::CreateFolder(path));
-                                }
-                            });
-                        }
-                        MenuItem::OpenFile => {
-                            let proxy = self.event_proxy.clone();
-                            std::thread::spawn(move || {
-                                if let Some(path) = rfd::FileDialog::new().pick_file() {
-                                    let _ = proxy.send_event(AppEvent::OpenFile(path));
-                                }
-                            });
-                        }
-                        MenuItem::OpenFolder => {
-                            let proxy = self.event_proxy.clone();
-                            std::thread::spawn(move || {
-                                if let Some(dir) = rfd::FileDialog::new().pick_folder() {
-                                    let _ = proxy.send_event(AppEvent::OpenFolder(dir));
-                                }
-                            });
-                        }
                         MenuItem::Save => {
                             if let Some(tab) = self.tabs.active_tab_mut() {
                                 let _ = tab.buffer.save();
@@ -634,6 +592,56 @@ impl ApplicationHandler<AppEvent> for App {
                                 );
                                 window.request_redraw();
                             }
+                        }
+                        MenuItem::NewFile => {
+                            self.sidebar.menu_expanded = false;
+                            self.sidebar.clamp_scroll(screen_h);
+                            let proxy = self.event_proxy.clone();
+                            let root_opt = self.sidebar.root_folder.clone();
+                            std::thread::spawn(move || {
+                                let mut dialog = rfd::FileDialog::new().set_title("New File");
+                                if let Some(root) = root_opt {
+                                    dialog = dialog.set_directory(&root);
+                                }
+                                if let Some(path) = dialog.save_file() {
+                                    let _ = proxy.send_event(AppEvent::SaveNewFile(path));
+                                }
+                            });
+                        }
+                        MenuItem::NewFolder => {
+                            self.sidebar.menu_expanded = false;
+                            self.sidebar.clamp_scroll(screen_h);
+                            let proxy = self.event_proxy.clone();
+                            let root_opt = self.sidebar.root_folder.clone();
+                            std::thread::spawn(move || {
+                                let mut dialog = rfd::FileDialog::new().set_title("New Folder");
+                                if let Some(root) = root_opt {
+                                    dialog = dialog.set_directory(&root);
+                                }
+                                if let Some(path) = dialog.save_file() {
+                                    let _ = proxy.send_event(AppEvent::CreateFolder(path));
+                                }
+                            });
+                        }
+                        MenuItem::OpenFile => {
+                            self.sidebar.menu_expanded = false;
+                            self.sidebar.clamp_scroll(screen_h);
+                            let proxy = self.event_proxy.clone();
+                            std::thread::spawn(move || {
+                                if let Some(path) = rfd::FileDialog::new().pick_file() {
+                                    let _ = proxy.send_event(AppEvent::OpenFile(path));
+                                }
+                            });
+                        }
+                        MenuItem::OpenFolder => {
+                            self.sidebar.menu_expanded = false;
+                            self.sidebar.clamp_scroll(screen_h);
+                            let proxy = self.event_proxy.clone();
+                            std::thread::spawn(move || {
+                                if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                                    let _ = proxy.send_event(AppEvent::OpenFolder(dir));
+                                }
+                            });
                         }
                         MenuItem::Terminal => {
                             self.terminal.is_open = !self.terminal.is_open;
