@@ -643,21 +643,6 @@ impl ApplicationHandler<AppEvent> for App {
                                 }
                             });
                         }
-                        MenuItem::Terminal => {
-                            self.terminal.is_open = !self.terminal.is_open;
-                            if self.terminal.is_open {
-                                self.terminal.focused = true;
-                                if self.terminal.tabs.is_empty() {
-                                    let new_btn_w = "New".len() * cw + 20;
-                                    let strip_min_x = self.sidebar.width + new_btn_w;
-                                    let strip_max_x = screen_w;
-                                    let available_w = strip_max_x.saturating_sub(strip_min_x);
-                                    self.terminal.add_terminal(cw, available_w);
-                                }
-                            }
-                            save_session(&self.sidebar, &self.tabs, &self.terminal);
-                            window.request_redraw();
-                        }
                         MenuItem::CloseFolder => {
                             if let Some(root) = self.sidebar.root_folder.clone() {
                                 if let Some(rec_dir) = recovery_dir() {
@@ -708,6 +693,21 @@ impl ApplicationHandler<AppEvent> for App {
                             );
                         }
                     },
+                    ActionEvent::ToggleTerminal => {
+                        self.terminal.is_open = !self.terminal.is_open;
+                        if self.terminal.is_open {
+                            self.terminal.focused = true;
+                            if self.terminal.tabs.is_empty() {
+                                let new_btn_w = "New".len() * cw + 20;
+                                let strip_min_x = self.sidebar.width + new_btn_w;
+                                let strip_max_x = screen_w;
+                                let available_w = strip_max_x.saturating_sub(strip_min_x);
+                                self.terminal.add_terminal(cw, available_w);
+                            }
+                        }
+                        save_session(&self.sidebar, &self.tabs, &self.terminal);
+                        window.request_redraw();
+                    }
                     ActionEvent::OpenFile(path) => {
                         self.tabs.open_file(path);
                         save_session(&self.sidebar, &self.tabs, &self.terminal);

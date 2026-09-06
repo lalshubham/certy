@@ -62,6 +62,7 @@ pub enum ActionEvent {
     None,
     Redraw,
     Menu(MenuItem),
+    ToggleTerminal,
     OpenFile(PathBuf),
     SaveTab(usize),
     DiscardTab(usize),
@@ -183,6 +184,7 @@ impl InputHandler {
         if mx < layout.content_left {
             return if sidebar.hovered_menu_header
                 || sidebar.hovered_menu_item.is_some()
+                || sidebar.hovered_terminal_header
                 || sidebar.hovered_root_header
                 || sidebar.hovered_tree_row.is_some()
             {
@@ -271,6 +273,7 @@ impl InputHandler {
 
         let prev_sh = sidebar.hovered_menu_header;
         let prev_sitem = sidebar.hovered_menu_item;
+        let prev_sterm = sidebar.hovered_terminal_header;
         let prev_sroot = sidebar.hovered_root_header;
         let prev_stree = sidebar.hovered_tree_row;
         let prev_th = tabs.hovered_tab;
@@ -282,6 +285,7 @@ impl InputHandler {
 
         sidebar.hovered_menu_header = false;
         sidebar.hovered_menu_item = None;
+        sidebar.hovered_terminal_header = false;
         sidebar.hovered_root_header = false;
         sidebar.hovered_tree_row = None;
 
@@ -303,6 +307,7 @@ impl InputHandler {
             .active_tab()
             .map(|t| t.buffer.is_modified)
             .unwrap_or(false);
+        let has_folder = sidebar.root_folder.is_some();
 
         if mx < sidebar.width {
             tabs.hovered_tab = None;
@@ -311,19 +316,25 @@ impl InputHandler {
                 let content_y = my as i32 + sidebar.scroll_y as i32;
                 if content_y >= 0 {
                     let cy = content_y as usize;
+                    let menu_total_h = sidebar.menu_total_height();
+
                     if cy < TAB_BAR_HEIGHT {
                         sidebar.hovered_menu_header = true;
-                    } else if sidebar.menu_expanded && cy < sidebar.menu_total_height() {
+                    } else if sidebar.menu_expanded && cy < menu_total_h {
                         let item_idx = (cy - TAB_BAR_HEIGHT) / SIDEBAR_ROW_HEIGHT;
                         let items = sidebar.menu_items();
                         if item_idx < items.len() {
                             let item = items[item_idx].0;
-                            if item != MenuItem::Save || can_save {
+                            let is_disabled = (item == MenuItem::Save && !can_save)
+                                || (item == MenuItem::CloseFolder && !has_folder);
+                            if !is_disabled {
                                 sidebar.hovered_menu_item = Some(item);
                             }
                         }
-                    } else if sidebar.root_folder.is_some() && cy >= sidebar.menu_total_height() {
-                        let rel_y = cy - sidebar.menu_total_height();
+                    } else if cy >= menu_total_h && cy < menu_total_h + TAB_BAR_HEIGHT {
+                        sidebar.hovered_terminal_header = true;
+                    } else if has_folder && cy >= menu_total_h + TAB_BAR_HEIGHT {
+                        let rel_y = cy - (menu_total_h + TAB_BAR_HEIGHT);
                         if rel_y < TAB_BAR_HEIGHT {
                             sidebar.hovered_root_header = true;
                         } else if sidebar.root_expanded {
@@ -342,6 +353,7 @@ impl InputHandler {
 
         let mut changed = prev_sh != sidebar.hovered_menu_header
             || prev_sitem != sidebar.hovered_menu_item
+            || prev_sterm != sidebar.hovered_terminal_header
             || prev_sroot != sidebar.hovered_root_header
             || prev_stree != sidebar.hovered_tree_row
             || prev_th != tabs.hovered_tab
@@ -844,6 +856,7 @@ impl InputHandler {
             .active_tab()
             .map(|t| t.buffer.is_modified)
             .unwrap_or(false);
+        let has_folder = sidebar.root_folder.is_some();
 
         if mx < sidebar.width {
             if has_sidebar_scroll && mx >= bar_x {
@@ -872,22 +885,29 @@ impl InputHandler {
             let content_y = my as i32 + sidebar.scroll_y as i32;
             if content_y >= 0 {
                 let cy = content_y as usize;
+                let menu_total_h = sidebar.menu_total_height();
+
                 if cy < TAB_BAR_HEIGHT {
                     sidebar.toggle_menu();
                     return ActionEvent::Redraw;
                 }
-                if sidebar.menu_expanded && cy < sidebar.menu_total_height() {
+                if sidebar.menu_expanded && cy < menu_total_h {
                     let item_idx = (cy - TAB_BAR_HEIGHT) / SIDEBAR_ROW_HEIGHT;
                     let items = sidebar.menu_items();
                     if item_idx < items.len() {
                         let item = items[item_idx].0;
-                        if item != MenuItem::Save || can_save {
+                        let is_disabled = (item == MenuItem::Save && !can_save)
+                            || (item == MenuItem::CloseFolder && !has_folder);
+                        if !is_disabled {
                             return ActionEvent::Menu(item);
                         }
                     }
                 }
-                if sidebar.root_folder.is_some() && cy >= sidebar.menu_total_height() {
-                    let rel_y = cy - sidebar.menu_total_height();
+                if cy >= menu_total_h && cy < menu_total_h + TAB_BAR_HEIGHT {
+                    return ActionEvent::ToggleTerminal;
+                }
+                if has_folder && cy >= menu_total_h + TAB_BAR_HEIGHT {
+                    let rel_y = cy - (menu_total_h + TAB_BAR_HEIGHT);
                     if rel_y < TAB_BAR_HEIGHT {
                         sidebar.toggle_root();
                         sidebar.clamp_scroll(screen_h);

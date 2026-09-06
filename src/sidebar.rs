@@ -10,7 +10,6 @@ pub enum MenuItem {
     NewFolder,
     OpenFile,
     OpenFolder,
-    Terminal,
     CloseFolder,
     Exit,
 }
@@ -33,6 +32,7 @@ pub struct Sidebar {
     pub scroll_y: usize,
     pub hovered_menu_header: bool,
     pub hovered_menu_item: Option<MenuItem>,
+    pub hovered_terminal_header: bool,
     pub hovered_root_header: bool,
     pub hovered_tree_row: Option<usize>,
 }
@@ -41,32 +41,28 @@ impl Sidebar {
     pub fn new() -> Self {
         Self {
             width: SIDEBAR_INITIAL_WIDTH,
-            menu_expanded: true,
+            menu_expanded: false,
             root_folder: None,
             root_expanded: true,
             nodes: Vec::new(),
             scroll_y: 0,
             hovered_menu_header: false,
             hovered_menu_item: None,
+            hovered_terminal_header: false,
             hovered_root_header: false,
             hovered_tree_row: None,
         }
     }
 
     pub fn menu_items(&self) -> [(MenuItem, &'static str); 7] {
-        let last = if self.root_folder.is_some() {
-            (MenuItem::CloseFolder, "Close Folder")
-        } else {
-            (MenuItem::Exit, "Exit")
-        };
         [
             (MenuItem::Save, "Save"),
             (MenuItem::NewFile, "New File"),
             (MenuItem::NewFolder, "New Folder"),
             (MenuItem::OpenFile, "Open File"),
             (MenuItem::OpenFolder, "Open Folder"),
-            (MenuItem::Terminal, "Terminal"),
-            last,
+            (MenuItem::CloseFolder, "Close Folder"),
+            (MenuItem::Exit, "Exit"),
         ]
     }
 
@@ -80,15 +76,16 @@ impl Sidebar {
 
     pub fn total_content_height(&self) -> usize {
         let menu_h = self.menu_total_height();
+        let terminal_header_h = TAB_BAR_HEIGHT;
         if self.root_folder.is_some() {
             let tree_h = if self.root_expanded {
                 self.nodes.len() * SIDEBAR_ROW_HEIGHT
             } else {
                 0
             };
-            menu_h + TAB_BAR_HEIGHT + tree_h
+            menu_h + terminal_header_h + TAB_BAR_HEIGHT + tree_h
         } else {
-            menu_h
+            menu_h + terminal_header_h
         }
     }
 

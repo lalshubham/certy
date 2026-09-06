@@ -166,12 +166,14 @@ impl Renderer {
             .active_tab()
             .map(|t| t.buffer.is_modified)
             .unwrap_or(false);
+        let has_folder = sidebar.root_folder.is_some();
 
         if sidebar.menu_expanded {
             for (idx, (item, label)) in sidebar.menu_items().iter().enumerate() {
                 let item_screen_y =
                     menu_screen_y + (TAB_BAR_HEIGHT + idx * SIDEBAR_ROW_HEIGHT) as i32;
-                let is_disabled = *item == MenuItem::Save && !can_save;
+                let is_disabled = (*item == MenuItem::Save && !can_save)
+                    || (*item == MenuItem::CloseFolder && !has_folder);
                 let is_hovered = sidebar.hovered_menu_item == Some(*item);
                 let bg = if is_hovered && !is_disabled {
                     COLOR_SIDEBAR_ROW_HOVER
@@ -217,8 +219,50 @@ impl Renderer {
             COLOR_SIDEBAR_BORDER,
         );
 
+        let term_screen_y = menu_screen_y + total_menu_h as i32;
+        let term_header_bg = if sidebar.hovered_terminal_header {
+            COLOR_SIDEBAR_ROW_HOVER
+        } else {
+            COLOR_BACKGROUND
+        };
+        draw_solid_rect_i32(
+            &mut frame,
+            screen_w,
+            screen_h,
+            0,
+            term_screen_y,
+            sidebar.width - 1,
+            TAB_BAR_HEIGHT,
+            term_header_bg,
+        );
+        let term_label = if terminal.is_open {
+            "[-] TERMINAL"
+        } else {
+            "[+] TERMINAL"
+        };
+        draw_string(
+            &mut self.font_manager,
+            &mut frame,
+            term_label,
+            12,
+            term_screen_y + header_offset_y as i32,
+            screen_w,
+            screen_h,
+            COLOR_LINE_NUMBER_ACTIVE,
+        );
+        draw_solid_rect_i32(
+            &mut frame,
+            screen_w,
+            screen_h,
+            0,
+            term_screen_y + TAB_BAR_HEIGHT as i32 - 1,
+            sidebar.width,
+            1,
+            COLOR_SIDEBAR_BORDER,
+        );
+
         if sidebar.root_folder.is_some() {
-            let root_screen_y = total_menu_h as i32 - sidebar.scroll_y as i32;
+            let root_screen_y = term_screen_y + TAB_BAR_HEIGHT as i32;
             let root_name = sidebar.root_name().unwrap_or_else(|| "FOLDER".to_string());
             let root_prefix = if sidebar.root_expanded {
                 "[-] "
@@ -260,7 +304,7 @@ impl Renderer {
             }
 
             if sidebar.root_expanded {
-                let tree_start_abs = total_menu_h + TAB_BAR_HEIGHT;
+                let tree_start_abs = total_menu_h + TAB_BAR_HEIGHT + TAB_BAR_HEIGHT;
                 let active_path = tabs.active_tab().and_then(|t| t.buffer.file_path.as_ref());
 
                 for (idx, node) in sidebar.nodes.iter().enumerate() {
