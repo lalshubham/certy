@@ -105,6 +105,11 @@ impl Sidebar {
 
     pub fn toggle_root(&mut self) {
         self.root_expanded = !self.root_expanded;
+        if !self.root_expanded {
+            if let Some(ref root) = self.root_folder.clone() {
+                self.nodes = read_dir_nodes(root, 0);
+            }
+        }
     }
 
     pub fn root_name(&self) -> Option<String> {

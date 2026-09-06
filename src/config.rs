@@ -34,6 +34,7 @@ pub const WINDOW_MIN_HEIGHT: f64 = 260.0;
 
 pub const FONT_SIZE: f32 = 17.0;
 pub const TAB_BAR_HEIGHT: usize = 34;
+pub const TERMINAL_TAB_BAR_HEIGHT: usize = 30;
 pub const SIDEBAR_INITIAL_WIDTH: usize = 230;
 pub const SIDEBAR_MIN_WIDTH: usize = 185;
 pub const SIDEBAR_ROW_HEIGHT: usize = 34;

@@ -1,6 +1,6 @@
-# Certy
-
-A lightweight, low-memory coding IDE written in Rust. 
+Certy is a lightweight and low-memory coding IDE written in Rust.<br />
+**Memory usage:** ~10 MB<br />
+**Binary size:** ~7 MB
 
 > Certy is currently under active development. Current builds are targeted and tested specifically for **Fedora Linux**.
 
@@ -10,9 +10,10 @@ A lightweight, low-memory coding IDE written in Rust.
 * Browse the files and folders of the currently opened directory from the sidebar.
 * Open and work with multiple files at the same time in the editor.
 * Common keyboard shortcuts like `Ctrl+X`, `Ctrl+C`, `Ctrl+V`, `Ctrl+Z`, `Ctrl+Y`, `Ctrl+A`, and `Ctrl+S`.
-* Restart the IDE with the same folder and previously opened files from the last session.
-* Show a confirmation modal for unsaved modified files with options to **Save**, **Discard**, or **Cancel** before closing or exiting.
 * Built-in terminal to run commands directly inside the IDE.
+* Show options to **Save**, **Discard**, or **Cancel** before closing a file or exiting the IDE.
+* Restart the IDE with the same folder and previously opened files from the last session.
+* Recover unsaved changes after an unexpected shutdown or crash.
 
 ## Prerequisites
 

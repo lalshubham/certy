@@ -9,7 +9,9 @@ mod sidebar;
 mod tabs;
 mod terminal;
 
-use config::{WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH};
+use config::{
+    SIDEBAR_MIN_WIDTH, TAB_BAR_HEIGHT, TERMINAL_TAB_BAR_HEIGHT, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH,
+};
 use input::{ActionEvent, InputHandler};
 use layout::compute_layout;
 use renderer::Renderer;
@@ -143,7 +145,7 @@ fn save_session(sidebar: &Sidebar, tabs: &TabManager, terminal: &Terminal) {
 fn trigger_app_close(
     tabs: &mut TabManager,
     sidebar: &Sidebar,
-    terminal: &Terminal,
+    terminal: &mut Terminal,
     window: &Window,
     event_loop: &ActiveEventLoop,
 ) {
@@ -152,6 +154,7 @@ fn trigger_app_close(
         tabs.pending_close = None;
         window.request_redraw();
     } else {
+        terminal.close_all();
         save_session(sidebar, tabs, terminal);
         event_loop.exit();
     }
@@ -260,7 +263,10 @@ impl App {
 
                 if let Some(p) = saved_folder {
                     if p.is_dir() {
-                        self.terminal.cwd = p.clone();
+                        self.terminal.default_cwd = p.clone();
+                        for tab in &mut self.terminal.tabs {
+                            tab.cwd = p.clone();
+                        }
                         self.sidebar.open_folder_with_expanded(p, &expanded_dirs);
                     }
                 }
@@ -337,7 +343,7 @@ impl ApplicationHandler<AppEvent> for App {
             }
         }
 
-        if self.terminal.is_running {
+        if self.terminal.has_running_process() {
             event_loop.set_control_flow(ControlFlow::Poll);
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
@@ -356,7 +362,10 @@ impl ApplicationHandler<AppEvent> for App {
                 }
             }
             AppEvent::OpenFolder(path) => {
-                self.terminal.cwd = path.clone();
+                self.terminal.default_cwd = path.clone();
+                for tab in &mut self.terminal.tabs {
+                    tab.cwd = path.clone();
+                }
                 self.sidebar.open_folder(path);
                 save_session(&self.sidebar, &self.tabs, &self.terminal);
             }
@@ -449,12 +458,36 @@ impl ApplicationHandler<AppEvent> for App {
                 if let Some(ref mut renderer) = self.renderer {
                     renderer.resize(size.width, size.height);
                 }
-                let avail_w = (size.width as usize).saturating_sub(self.sidebar.width);
+                let screen_w = size.width as usize;
+                let screen_h = size.height as usize;
+
+                let min_editor_w = 120;
+                let max_sidebar_w = screen_w.saturating_sub(min_editor_w);
+                let min_sidebar_w = SIDEBAR_MIN_WIDTH.min(max_sidebar_w);
+                self.sidebar.width = self.sidebar.width.clamp(min_sidebar_w, max_sidebar_w);
+
+                if self.terminal.is_open {
+                    let min_editor_h = TAB_BAR_HEIGHT + 40;
+                    let max_term_h = screen_h.saturating_sub(min_editor_h);
+                    let min_term_h = (TERMINAL_TAB_BAR_HEIGHT + 40).min(max_term_h);
+                    self.terminal.height = if max_term_h <= min_term_h {
+                        min_term_h
+                    } else {
+                        self.terminal.height.clamp(min_term_h, max_term_h)
+                    };
+                }
+
+                let avail_w = screen_w.saturating_sub(self.sidebar.width);
                 self.tabs.clamp_scroll(cw, avail_w);
                 if let Some(tab) = self.tabs.active_tab_mut() {
+                    let cur_term_h = if self.terminal.is_open {
+                        self.terminal.height
+                    } else {
+                        0
+                    };
                     let l = compute_layout(
-                        size.width as usize,
-                        (size.height as usize).saturating_sub(term_h),
+                        screen_w,
+                        screen_h.saturating_sub(cur_term_h),
                         cw,
                         lh,
                         tab.buffer.text().len_lines(),
@@ -462,6 +495,13 @@ impl ApplicationHandler<AppEvent> for App {
                     );
                     tab.buffer.fit_view(l.visible_lines, l.visible_cols);
                 }
+
+                let new_btn_w = "New".len() * cw + 20;
+                let strip_min_x = self.sidebar.width + new_btn_w;
+                let strip_max_x = screen_w;
+                let available_tab_w = strip_max_x.saturating_sub(strip_min_x);
+                self.terminal.clamp_tab_scroll(cw, available_tab_w);
+
                 window.request_redraw();
             }
 
@@ -587,8 +627,12 @@ impl ApplicationHandler<AppEvent> for App {
                             self.terminal.is_open = !self.terminal.is_open;
                             if self.terminal.is_open {
                                 self.terminal.focused = true;
-                                if let Some(ref root) = self.sidebar.root_folder {
-                                    self.terminal.cwd = root.clone();
+                                if self.terminal.tabs.is_empty() {
+                                    let new_btn_w = "New".len() * cw + 20;
+                                    let strip_min_x = self.sidebar.width + new_btn_w;
+                                    let strip_max_x = screen_w;
+                                    let available_w = strip_max_x.saturating_sub(strip_min_x);
+                                    self.terminal.add_terminal(cw, available_w);
                                 }
                             }
                             save_session(&self.sidebar, &self.tabs, &self.terminal);
@@ -638,7 +682,7 @@ impl ApplicationHandler<AppEvent> for App {
                             trigger_app_close(
                                 &mut self.tabs,
                                 &self.sidebar,
-                                &self.terminal,
+                                &mut self.terminal,
                                 &window,
                                 event_loop,
                             );
@@ -731,6 +775,7 @@ impl ApplicationHandler<AppEvent> for App {
                         if self.sidebar.root_folder.is_some() {
                             self.sidebar.refresh_folder();
                         }
+                        self.terminal.close_all();
                         save_session(&self.sidebar, &self.tabs, &self.terminal);
                         event_loop.exit();
                     }
@@ -741,6 +786,7 @@ impl ApplicationHandler<AppEvent> for App {
                         if let Some(rec_dir) = recovery_dir() {
                             let _ = fs::remove_dir_all(&rec_dir);
                         }
+                        self.terminal.close_all();
                         save_session(&self.sidebar, &self.tabs, &self.terminal);
                         event_loop.exit();
                     }
@@ -837,7 +883,7 @@ impl ApplicationHandler<AppEvent> for App {
                     trigger_app_close(
                         &mut self.tabs,
                         &self.sidebar,
-                        &self.terminal,
+                        &mut self.terminal,
                         &window,
                         event_loop,
                     );
@@ -851,6 +897,7 @@ impl ApplicationHandler<AppEvent> for App {
                     &layout,
                     cw,
                     lh,
+                    screen_w,
                     &mut self.clipboard,
                 ) {
                     save_session(&self.sidebar, &self.tabs, &self.terminal);
@@ -868,7 +915,7 @@ impl ApplicationHandler<AppEvent> for App {
                 trigger_app_close(
                     &mut self.tabs,
                     &self.sidebar,
-                    &self.terminal,
+                    &mut self.terminal,
                     &window,
                     event_loop,
                 );
