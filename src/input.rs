@@ -2,6 +2,7 @@ use crate::config::*;
 use crate::layout::{calc_thumb, compute_modal_layout, ViewportLayout};
 use crate::sidebar::{MenuItem, Sidebar};
 use crate::tabs::TabManager;
+use crate::terminal::Terminal;
 use arboard::Clipboard;
 use std::path::PathBuf;
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta};
@@ -29,11 +30,25 @@ pub enum DragState {
         start_y: f64,
         start_scroll: usize,
     },
+    TerminalResize {
+        start_y: f64,
+        start_h: usize,
+    },
+    TerminalVertical {
+        start_y: f64,
+        start_line: usize,
+    },
+    TerminalHorizontal {
+        start_x: f64,
+        start_col: usize,
+    },
+    TerminalSelecting,
 }
 
 #[derive(Default)]
 pub struct InputHandler {
     pub drag: DragState,
+    pub is_left_down: bool,
     pub mouse_x: f64,
     pub mouse_y: f64,
     pub scroll_accum_y: f64,
@@ -57,11 +72,17 @@ pub enum ActionEvent {
 
 impl InputHandler {
     pub fn desired_cursor_icon(
-        &self,
+        &mut self,
         layout: &ViewportLayout,
         tabs: &TabManager,
         sidebar: &Sidebar,
+        terminal: &Terminal,
+        screen_h: usize,
     ) -> CursorIcon {
+        if !self.is_left_down && self.drag != DragState::None {
+            self.drag = DragState::None;
+        }
+
         if tabs.closing_app || tabs.pending_close.is_some() {
             return if tabs.hovered_modal_btn.is_some() {
                 CursorIcon::Pointer
@@ -73,7 +94,10 @@ impl InputHandler {
         if matches!(self.drag, DragState::SidebarResize { .. }) {
             return CursorIcon::ColResize;
         }
-        if self.drag == DragState::SelectingText {
+        if matches!(self.drag, DragState::TerminalResize { .. }) {
+            return CursorIcon::RowResize;
+        }
+        if self.drag == DragState::SelectingText || self.drag == DragState::TerminalSelecting {
             return CursorIcon::Text;
         }
         if self.drag != DragState::None {
@@ -84,6 +108,23 @@ impl InputHandler {
 
         if (mx as i32 - sidebar.width as i32).abs() <= 4 {
             return CursorIcon::ColResize;
+        }
+
+        if terminal.is_open && mx >= layout.content_left {
+            let term_y = screen_h.saturating_sub(terminal.height);
+            if (my as i32 - term_y as i32).abs() <= 3 {
+                return CursorIcon::RowResize;
+            }
+            if my >= term_y && my < term_y + 26 {
+                return if terminal.hovered_close {
+                    CursorIcon::Pointer
+                } else {
+                    CursorIcon::Default
+                };
+            }
+            if my >= term_y {
+                return CursorIcon::Text;
+            }
         }
 
         if mx < layout.content_left {
@@ -146,6 +187,7 @@ impl InputHandler {
         y: f64,
         tabs: &mut TabManager,
         sidebar: &mut Sidebar,
+        terminal: &mut Terminal,
         layout: &ViewportLayout,
         char_w: usize,
         line_h: usize,
@@ -155,6 +197,10 @@ impl InputHandler {
         self.mouse_x = x;
         self.mouse_y = y;
         let (mx, my) = (x as usize, y as usize);
+
+        if !self.is_left_down && self.drag != DragState::None {
+            self.drag = DragState::None;
+        }
 
         sidebar.clamp_scroll(screen_h);
 
@@ -176,11 +222,20 @@ impl InputHandler {
         let prev_stree = sidebar.hovered_tree_row;
         let prev_th = tabs.hovered_tab;
         let prev_ch = tabs.hovered_close;
+        let prev_term_close = terminal.hovered_close;
 
         sidebar.hovered_menu_header = false;
         sidebar.hovered_menu_item = None;
         sidebar.hovered_root_header = false;
         sidebar.hovered_tree_row = None;
+
+        if terminal.is_open && mx >= layout.content_left {
+            let term_y = screen_h.saturating_sub(terminal.height);
+            terminal.hovered_close =
+                my >= term_y && my < term_y + 26 && mx >= screen_w.saturating_sub(26);
+        } else {
+            terminal.hovered_close = false;
+        }
 
         let total_sidebar_h = sidebar.total_content_height();
         let has_sidebar_scroll = total_sidebar_h > screen_h;
@@ -232,7 +287,8 @@ impl InputHandler {
             || prev_sroot != sidebar.hovered_root_header
             || prev_stree != sidebar.hovered_tree_row
             || prev_th != tabs.hovered_tab
-            || prev_ch != tabs.hovered_close;
+            || prev_ch != tabs.hovered_close
+            || prev_term_close != terminal.hovered_close;
 
         match self.drag {
             DragState::SidebarResize { start_x, start_w } => {
@@ -245,6 +301,95 @@ impl InputHandler {
                 if sidebar.width != new_w {
                     sidebar.width = new_w;
                     changed = true;
+                }
+            }
+            DragState::TerminalResize { start_y, start_h } => {
+                let delta = start_y - self.mouse_y;
+                let min_h = 100;
+                let max_h = screen_h.saturating_sub(TAB_BAR_HEIGHT + 100);
+                let new_h = ((start_h as f64 + delta) as usize).clamp(min_h, max_h);
+                if terminal.height != new_h {
+                    terminal.height = new_h;
+                    changed = true;
+                }
+            }
+            DragState::TerminalSelecting => {
+                if !terminal.is_running {
+                    let text_left = layout.content_left + 14;
+                    let vbar_x = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
+                    let vis_cols = if char_w > 0 {
+                        vbar_x.saturating_sub(text_left) / char_w
+                    } else {
+                        0
+                    };
+                    let p = terminal.prompt();
+                    let prompt_cols = p.chars().count();
+                    let input_start_x = (text_left as i32) - (terminal.scroll_col * char_w) as i32
+                        + (prompt_cols * char_w) as i32;
+                    let new_col = if (mx as i32) <= input_start_x {
+                        0
+                    } else {
+                        let rel_x = (mx as i32) - input_start_x;
+                        let col = if char_w > 0 {
+                            (rel_x as usize + (char_w / 2)) / char_w
+                        } else {
+                            0
+                        };
+                        col.min(terminal.current_input.chars().count())
+                    };
+                    if terminal.cursor_col != new_col {
+                        terminal.cursor_col = new_col;
+                        terminal.ensure_cursor_visible(vis_cols);
+                        changed = true;
+                    }
+                }
+            }
+            DragState::TerminalVertical {
+                start_y,
+                start_line,
+            } => {
+                let header_h = 26;
+                let body_h = terminal.height.saturating_sub(header_h);
+                let track_h = body_h.saturating_sub(SCROLLBAR_THICKNESS);
+                let vis_lines = terminal.vis_rows(line_h);
+                let total = terminal.total_lines();
+                if let Some((_, th)) = calc_thumb(total, vis_lines, terminal.scroll_line, track_h) {
+                    let travel = track_h.saturating_sub(th) as f64;
+                    if travel > 0.0 {
+                        let max_s = (total.saturating_sub(vis_lines)) as f64;
+                        let target = (start_line as f64
+                            + ((self.mouse_y - start_y) / travel) * max_s)
+                            .clamp(0.0, max_s) as usize;
+                        if terminal.scroll_line != target {
+                            terminal.scroll_line = target;
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            DragState::TerminalHorizontal { start_x, start_col } => {
+                let term_w = screen_w.saturating_sub(layout.content_left);
+                let track_w = term_w.saturating_sub(SCROLLBAR_THICKNESS);
+                let text_left = layout.content_left + 14;
+                let text_right = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
+                let vis_cols = if char_w > 0 {
+                    text_right.saturating_sub(text_left) / char_w
+                } else {
+                    0
+                };
+                let max_c = terminal.max_content_cols();
+                if let Some((_, tw)) = calc_thumb(max_c, vis_cols, terminal.scroll_col, track_w) {
+                    let travel = track_w.saturating_sub(tw) as f64;
+                    if travel > 0.0 {
+                        let max_s = (max_c.saturating_sub(vis_cols)) as f64;
+                        let target = (start_col as f64
+                            + ((self.mouse_x - start_x) / travel) * max_s)
+                            .clamp(0.0, max_s) as usize;
+                        if terminal.scroll_col != target {
+                            terminal.scroll_col = target;
+                            changed = true;
+                        }
+                    }
                 }
             }
             DragState::SidebarScroll {
@@ -344,6 +489,7 @@ impl InputHandler {
         button: MouseButton,
         tabs: &mut TabManager,
         sidebar: &mut Sidebar,
+        terminal: &mut Terminal,
         layout: &ViewportLayout,
         char_w: usize,
         line_h: usize,
@@ -355,6 +501,7 @@ impl InputHandler {
         }
 
         if state == ElementState::Released {
+            self.is_left_down = false;
             let was_dragging = self.drag != DragState::None;
             if let Some(active_tab) = tabs.active_tab_mut() {
                 if self.drag == DragState::SelectingText
@@ -371,6 +518,7 @@ impl InputHandler {
             };
         }
 
+        self.is_left_down = true;
         let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
 
         if let Some(modal) = compute_modal_layout(tabs, screen_w, screen_h, char_w, line_h) {
@@ -400,6 +548,147 @@ impl InputHandler {
                 start_w: sidebar.width,
             };
             return ActionEvent::None;
+        }
+
+        if terminal.is_open && mx >= layout.content_left {
+            let term_y = screen_h.saturating_sub(terminal.height);
+            let header_h = 26;
+            let body_y = term_y + header_h;
+            let body_h = terminal.height.saturating_sub(header_h);
+            let term_w = screen_w.saturating_sub(layout.content_left);
+            let track_h = body_h.saturating_sub(SCROLLBAR_THICKNESS);
+            let track_w = term_w.saturating_sub(SCROLLBAR_THICKNESS);
+            let vbar_x = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
+            let hbar_y = screen_h.saturating_sub(SCROLLBAR_THICKNESS);
+
+            if (my as i32 - term_y as i32).abs() <= 3 {
+                self.drag = DragState::TerminalResize {
+                    start_y: self.mouse_y,
+                    start_h: terminal.height,
+                };
+                return ActionEvent::None;
+            }
+            if my >= term_y && my < body_y {
+                if mx >= screen_w.saturating_sub(26) {
+                    terminal.is_open = false;
+                    terminal.focused = false;
+                    return ActionEvent::Redraw;
+                }
+                terminal.focused = true;
+                return ActionEvent::Redraw;
+            }
+
+            if mx >= vbar_x && my >= body_y && my < body_y + track_h {
+                let vis_lines = terminal.vis_rows(line_h);
+                let total = terminal.total_lines();
+                if let Some((ty, th)) = calc_thumb(total, vis_lines, terminal.scroll_line, track_h)
+                {
+                    let thumb_y = body_y + ty;
+                    if my >= thumb_y && my < thumb_y + th {
+                        self.drag = DragState::TerminalVertical {
+                            start_y: self.mouse_y,
+                            start_line: terminal.scroll_line,
+                        };
+                    } else {
+                        let ratio =
+                            ((my.saturating_sub(body_y)) as f64 / track_h as f64).clamp(0.0, 1.0);
+                        terminal.scroll_line =
+                            (ratio * (total.saturating_sub(vis_lines)) as f64) as usize;
+                        self.drag = DragState::TerminalVertical {
+                            start_y: self.mouse_y,
+                            start_line: terminal.scroll_line,
+                        };
+                        return ActionEvent::Redraw;
+                    }
+                }
+                terminal.focused = true;
+                return ActionEvent::Redraw;
+            }
+
+            if my >= hbar_y && mx >= layout.content_left && mx < layout.content_left + track_w {
+                let text_left = layout.content_left + 14;
+                let text_right = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
+                let vis_cols = if char_w > 0 {
+                    text_right.saturating_sub(text_left) / char_w
+                } else {
+                    0
+                };
+                let max_c = terminal.max_content_cols();
+                if let Some((tx_offset, tw)) =
+                    calc_thumb(max_c, vis_cols, terminal.scroll_col, track_w)
+                {
+                    let tx = layout.content_left + tx_offset;
+                    if mx >= tx && mx < tx + tw {
+                        self.drag = DragState::TerminalHorizontal {
+                            start_x: self.mouse_x,
+                            start_col: terminal.scroll_col,
+                        };
+                    } else {
+                        let ratio = ((mx.saturating_sub(layout.content_left)) as f64
+                            / track_w as f64)
+                            .clamp(0.0, 1.0);
+                        terminal.scroll_col =
+                            (ratio * (max_c.saturating_sub(vis_cols)) as f64) as usize;
+                        self.drag = DragState::TerminalHorizontal {
+                            start_x: self.mouse_x,
+                            start_col: terminal.scroll_col,
+                        };
+                        return ActionEvent::Redraw;
+                    }
+                }
+                terminal.focused = true;
+                return ActionEvent::Redraw;
+            }
+
+            if my >= body_y && my < hbar_y && mx >= layout.content_left && mx < vbar_x {
+                terminal.focused = true;
+                let text_left = layout.content_left + 14;
+                let text_right = vbar_x;
+                let vis_cols = if char_w > 0 {
+                    text_right.saturating_sub(text_left) / char_w
+                } else {
+                    0
+                };
+                let vis_lines = terminal.vis_rows(line_h);
+
+                if !terminal.is_running {
+                    let prompt_line_idx = terminal.lines.len()
+                        + if !terminal.partial_line.is_empty() {
+                            1
+                        } else {
+                            0
+                        };
+                    if prompt_line_idx >= terminal.scroll_line {
+                        let row = prompt_line_idx - terminal.scroll_line;
+                        if row < vis_lines {
+                            let line_y = body_y + 4 + row * line_h;
+                            if my >= line_y && my < line_y + line_h {
+                                let p = terminal.prompt();
+                                let prompt_cols = p.chars().count();
+                                let input_start_x = (text_left as i32)
+                                    - (terminal.scroll_col * char_w) as i32
+                                    + (prompt_cols * char_w) as i32;
+                                if (mx as i32) <= input_start_x {
+                                    terminal.cursor_col = 0;
+                                } else {
+                                    let rel_x = (mx as i32) - input_start_x;
+                                    let col_clicked = if char_w > 0 {
+                                        (rel_x as usize + (char_w / 2)) / char_w
+                                    } else {
+                                        0
+                                    };
+                                    let max_len = terminal.current_input.chars().count();
+                                    terminal.cursor_col = col_clicked.min(max_len);
+                                }
+                                terminal.ensure_cursor_visible(vis_cols);
+                                self.drag = DragState::TerminalSelecting;
+                                return ActionEvent::Redraw;
+                            }
+                        }
+                    }
+                }
+                return ActionEvent::Redraw;
+            }
         }
 
         let total_sidebar_h = sidebar.total_content_height();
@@ -478,6 +767,7 @@ impl InputHandler {
 
         if !tabs.tabs.is_empty() && my < TAB_BAR_HEIGHT {
             if mx >= layout.content_left {
+                terminal.focused = false;
                 let available_w = screen_w.saturating_sub(layout.content_left);
                 if let Some(close_idx) = tabs.hovered_close {
                     tabs.closing_app = false;
@@ -506,6 +796,7 @@ impl InputHandler {
                 && my >= TAB_BAR_HEIGHT
                 && my < layout.content_bottom
             {
+                terminal.focused = false;
                 if let Some((ty, th)) = calc_thumb(
                     total,
                     layout.visible_lines,
@@ -531,10 +822,11 @@ impl InputHandler {
                     }
                 }
             } else if my >= layout.content_bottom
-                && my < screen_h
+                && my < layout.content_bottom + SCROLLBAR_THICKNESS
                 && mx >= layout.bar_start_x
                 && mx < layout.content_right
             {
+                terminal.focused = false;
                 let track_w = layout.content_right.saturating_sub(layout.bar_start_x);
                 if let Some((tx_offset, tw)) = calc_thumb(
                     active_buf.max_line_len,
@@ -566,6 +858,7 @@ impl InputHandler {
                 && mx >= layout.content_left
                 && mx < layout.content_right
             {
+                terminal.focused = false;
                 if line_h > 0 && char_w > 0 {
                     let row = my.saturating_sub(TAB_BAR_HEIGHT + TOP_PADDING) / line_h;
                     let target_line = active_buf.scroll_line + row;
@@ -591,6 +884,7 @@ impl InputHandler {
         delta: MouseScrollDelta,
         tabs: &mut TabManager,
         sidebar: &mut Sidebar,
+        terminal: &mut Terminal,
         layout: &ViewportLayout,
         char_w: usize,
         line_h: usize,
@@ -634,6 +928,34 @@ impl InputHandler {
             return false;
         }
 
+        if terminal.is_open && mx >= layout.content_left {
+            let term_y = screen_h.saturating_sub(terminal.height);
+            if my >= term_y {
+                let vis_lines = terminal.vis_rows(line_h);
+                let total_l = terminal.total_lines();
+                let max_l = total_l.saturating_sub(vis_lines);
+
+                let text_left = layout.content_left + 14;
+                let text_right = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
+                let vis_cols = if char_w > 0 {
+                    text_right.saturating_sub(text_left) / char_w
+                } else {
+                    0
+                };
+                let max_c = terminal.max_content_cols().saturating_sub(vis_cols);
+
+                let next_l = (terminal.scroll_line as i32 - lines).clamp(0, max_l as i32) as usize;
+                let next_c = (terminal.scroll_col as i32 - cols).clamp(0, max_c as i32) as usize;
+
+                if terminal.scroll_line != next_l || terminal.scroll_col != next_c {
+                    terminal.scroll_line = next_l;
+                    terminal.scroll_col = next_c;
+                    return true;
+                }
+                return false;
+            }
+        }
+
         if my < TAB_BAR_HEIGHT {
             let available_w = screen_w.saturating_sub(layout.content_left);
             let scroll_delta = if cols != 0 { -cols } else { -lines };
@@ -674,7 +996,10 @@ impl InputHandler {
         &mut self,
         event: &KeyEvent,
         tabs: &mut TabManager,
+        terminal: &mut Terminal,
         layout: &ViewportLayout,
+        char_w: usize,
+        line_h: usize,
         clipboard: &mut Option<Clipboard>,
     ) -> bool {
         if event.state == ElementState::Released {
@@ -730,6 +1055,91 @@ impl InputHandler {
 
         let is_ctrl = self.modifiers.control_key() || self.ctrl_down;
         let is_shift = self.modifiers.shift_key() || self.shift_down;
+
+        if terminal.is_open && terminal.focused {
+            let vis_rows = terminal.vis_rows(line_h);
+            let vis_cols = if char_w > 0 {
+                layout
+                    .content_right
+                    .saturating_sub(layout.content_left + 14)
+                    / char_w
+            } else {
+                0
+            };
+
+            if is_ctrl && matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyC)) {
+                terminal.interrupt(vis_rows);
+                return true;
+            }
+            if is_ctrl && matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyL)) {
+                terminal.lines.clear();
+                terminal.partial_line.clear();
+                terminal.scroll_line = 0;
+                terminal.scroll_col = 0;
+                return true;
+            }
+
+            match &event.logical_key {
+                Key::Named(NamedKey::Enter) => {
+                    terminal.execute_command(vis_rows);
+                    return true;
+                }
+                Key::Named(NamedKey::Backspace) => {
+                    terminal.delete_backwards();
+                    terminal.ensure_cursor_visible(vis_cols);
+                    return true;
+                }
+                Key::Named(NamedKey::Delete) => {
+                    terminal.delete_forward();
+                    terminal.ensure_cursor_visible(vis_cols);
+                    return true;
+                }
+                Key::Named(NamedKey::ArrowLeft) => {
+                    terminal.move_left();
+                    terminal.ensure_cursor_visible(vis_cols);
+                    return true;
+                }
+                Key::Named(NamedKey::ArrowRight) => {
+                    terminal.move_right();
+                    terminal.ensure_cursor_visible(vis_cols);
+                    return true;
+                }
+                Key::Named(NamedKey::Home) => {
+                    terminal.cursor_col = 0;
+                    terminal.ensure_cursor_visible(vis_cols);
+                    return true;
+                }
+                Key::Named(NamedKey::End) => {
+                    terminal.cursor_col = terminal.current_input.chars().count();
+                    terminal.ensure_cursor_visible(vis_cols);
+                    return true;
+                }
+                Key::Named(NamedKey::ArrowUp) => {
+                    terminal.history_up();
+                    terminal.ensure_cursor_visible(vis_cols);
+                    return true;
+                }
+                Key::Named(NamedKey::ArrowDown) => {
+                    terminal.history_down();
+                    terminal.ensure_cursor_visible(vis_cols);
+                    return true;
+                }
+                _ => {
+                    if !is_ctrl {
+                        if let Some(txt) = &event.text {
+                            for ch in txt.chars() {
+                                if !ch.is_control() {
+                                    terminal.insert_char(ch);
+                                }
+                            }
+                            terminal.ensure_cursor_visible(vis_cols);
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
 
         if let Some(tab) = tabs.active_tab_mut() {
             let buffer = &mut tab.buffer;

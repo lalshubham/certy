@@ -3,6 +3,7 @@ use crate::font::FontManager;
 use crate::layout::{calc_thumb, compute_layout, compute_modal_layout, ViewportLayout};
 use crate::sidebar::{MenuItem, Sidebar};
 use crate::tabs::TabManager;
+use crate::terminal::Terminal;
 use softbuffer::{Context, Surface};
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -47,10 +48,16 @@ impl Renderer {
         }
     }
 
-    pub fn layout(&self, total_lines: usize, sidebar_w: usize) -> ViewportLayout {
+    pub fn layout(
+        &self,
+        total_lines: usize,
+        sidebar_w: usize,
+        terminal_h: usize,
+    ) -> ViewportLayout {
+        let effective_h = self.height.saturating_sub(terminal_h);
         compute_layout(
             self.width,
-            self.height,
+            effective_h,
             self.font_manager.char_width,
             self.font_manager.line_height,
             total_lines,
@@ -58,18 +65,19 @@ impl Renderer {
         )
     }
 
-    pub fn render(&mut self, tabs: &TabManager, sidebar: &Sidebar) {
+    pub fn render(&mut self, tabs: &TabManager, sidebar: &Sidebar, terminal: &Terminal) {
         if self.width == 0 || self.height == 0 {
             return;
         }
 
         let screen_w = self.width;
         let screen_h = self.height;
+        let term_h = if terminal.is_open { terminal.height } else { 0 };
         let total_lines = tabs
             .active_tab()
             .map(|t| t.buffer.text().len_lines())
             .unwrap_or(0);
-        let layout = self.layout(total_lines, sidebar.width);
+        let layout = self.layout(total_lines, sidebar.width, term_h);
 
         let mut frame = self.surface.buffer_mut().expect("Failed to get buffer");
         frame.fill(COLOR_BACKGROUND);
@@ -470,7 +478,7 @@ impl Renderer {
             let sel_range = buffer.selection_range();
 
             let gutter_x = layout.content_left;
-            let gutter_h = screen_h.saturating_sub(TAB_BAR_HEIGHT);
+            let gutter_h = layout.content_bottom.saturating_sub(TAB_BAR_HEIGHT);
             draw_solid_rect(
                 &mut frame,
                 screen_w,
@@ -645,6 +653,268 @@ impl Renderer {
                 screen_h,
                 layout.content_right,
                 layout.content_bottom,
+                SCROLLBAR_THICKNESS,
+                SCROLLBAR_THICKNESS,
+                COLOR_SCROLLBAR_TRACK,
+            );
+        }
+
+        if terminal.is_open {
+            let term_y = screen_h.saturating_sub(terminal.height);
+            let term_w = screen_w.saturating_sub(layout.content_left);
+            let header_h = 26;
+            let body_y = term_y + header_h;
+            let body_h = terminal.height.saturating_sub(header_h);
+
+            draw_solid_rect(
+                &mut frame,
+                screen_w,
+                screen_h,
+                layout.content_left,
+                term_y,
+                term_w,
+                1,
+                COLOR_SIDEBAR_BORDER,
+            );
+
+            draw_solid_rect(
+                &mut frame,
+                screen_w,
+                screen_h,
+                layout.content_left,
+                term_y + 1,
+                term_w,
+                header_h - 1,
+                COLOR_SIDEBAR_BG,
+            );
+
+            draw_string(
+                &mut self.font_manager,
+                &mut frame,
+                "TERMINAL",
+                layout.content_left as i32 + 14,
+                term_y as i32 + ((header_h.saturating_sub(lh)) / 2) as i32,
+                screen_w,
+                screen_h,
+                if terminal.focused {
+                    COLOR_LINE_NUMBER_ACTIVE
+                } else {
+                    COLOR_TAB_TEXT_INACTIVE
+                },
+            );
+
+            let close_color = if terminal.hovered_close {
+                COLOR_TAB_CLOSE_HOVER
+            } else {
+                COLOR_TAB_TEXT_INACTIVE
+            };
+            draw_string(
+                &mut self.font_manager,
+                &mut frame,
+                "x",
+                screen_w as i32 - 20,
+                term_y as i32 + ((header_h.saturating_sub(lh)) / 2) as i32,
+                screen_w,
+                screen_h,
+                close_color,
+            );
+
+            let vbar_x = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
+            let hbar_y = screen_h.saturating_sub(SCROLLBAR_THICKNESS);
+            let track_h = body_h.saturating_sub(SCROLLBAR_THICKNESS);
+            let track_w = term_w.saturating_sub(SCROLLBAR_THICKNESS);
+            let vis_lines = terminal.vis_rows(lh);
+
+            let text_left = layout.content_left + 14;
+            let text_right = vbar_x;
+            let vis_cols = if cw > 0 {
+                text_right.saturating_sub(text_left) / cw
+            } else {
+                0
+            };
+
+            draw_solid_rect(
+                &mut frame,
+                screen_w,
+                screen_h,
+                layout.content_left,
+                body_y,
+                track_w,
+                track_h,
+                0xFF141414,
+            );
+
+            let total_term_lines = terminal.total_lines();
+            let start_line = terminal.scroll_line;
+
+            for row in 0..vis_lines {
+                let line_idx = start_line + row;
+                let py = body_y + 4 + row * lh;
+                if py + lh > hbar_y {
+                    break;
+                }
+
+                if line_idx < terminal.lines.len() {
+                    let px = text_left as i32 - (terminal.scroll_col * cw) as i32;
+                    draw_string_clipped(
+                        &mut self.font_manager,
+                        &mut frame,
+                        &terminal.lines[line_idx],
+                        px,
+                        py as i32,
+                        text_left,
+                        text_right,
+                        screen_w,
+                        screen_h,
+                        COLOR_TEXT_DEFAULT,
+                    );
+                } else if line_idx == terminal.lines.len() && !terminal.partial_line.is_empty() {
+                    let px = text_left as i32 - (terminal.scroll_col * cw) as i32;
+                    draw_string_clipped(
+                        &mut self.font_manager,
+                        &mut frame,
+                        &terminal.partial_line,
+                        px,
+                        py as i32,
+                        text_left,
+                        text_right,
+                        screen_w,
+                        screen_h,
+                        COLOR_TEXT_DEFAULT,
+                    );
+                } else if !terminal.is_running
+                    && line_idx
+                        == (terminal.lines.len()
+                            + if !terminal.partial_line.is_empty() {
+                                1
+                            } else {
+                                0
+                            })
+                {
+                    let p = terminal.prompt();
+                    let px = text_left as i32 - (terminal.scroll_col * cw) as i32;
+                    draw_string_clipped(
+                        &mut self.font_manager,
+                        &mut frame,
+                        &p,
+                        px,
+                        py as i32,
+                        text_left,
+                        text_right,
+                        screen_w,
+                        screen_h,
+                        0xFF4EC9B0,
+                    );
+                    let input_x = px + (p.chars().count() * cw) as i32;
+                    draw_string_clipped(
+                        &mut self.font_manager,
+                        &mut frame,
+                        &terminal.current_input,
+                        input_x,
+                        py as i32,
+                        text_left,
+                        text_right,
+                        screen_w,
+                        screen_h,
+                        COLOR_TEXT_DEFAULT,
+                    );
+
+                    if terminal.focused {
+                        let cur_px = input_x + (terminal.cursor_col * cw) as i32;
+                        if cur_px >= text_left as i32 && (cur_px as usize + 2) <= text_right {
+                            draw_solid_rect(
+                                &mut frame,
+                                screen_w,
+                                screen_h,
+                                cur_px as usize,
+                                py,
+                                2,
+                                lh,
+                                COLOR_CURSOR,
+                            );
+                        }
+                    }
+                }
+            }
+
+            if let Some((ty, th)) =
+                calc_thumb(total_term_lines, vis_lines, terminal.scroll_line, track_h)
+            {
+                draw_solid_rect(
+                    &mut frame,
+                    screen_w,
+                    screen_h,
+                    vbar_x,
+                    body_y,
+                    SCROLLBAR_THICKNESS,
+                    track_h,
+                    COLOR_SCROLLBAR_TRACK,
+                );
+                draw_solid_rect(
+                    &mut frame,
+                    screen_w,
+                    screen_h,
+                    vbar_x,
+                    body_y + ty,
+                    SCROLLBAR_THICKNESS,
+                    th,
+                    COLOR_SCROLLBAR_THUMB,
+                );
+            } else {
+                draw_solid_rect(
+                    &mut frame,
+                    screen_w,
+                    screen_h,
+                    vbar_x,
+                    body_y,
+                    SCROLLBAR_THICKNESS,
+                    track_h,
+                    COLOR_SCROLLBAR_TRACK,
+                );
+            }
+
+            let max_c = terminal.max_content_cols();
+            if let Some((tx_offset, tw)) = calc_thumb(max_c, vis_cols, terminal.scroll_col, track_w)
+            {
+                draw_solid_rect(
+                    &mut frame,
+                    screen_w,
+                    screen_h,
+                    layout.content_left,
+                    hbar_y,
+                    track_w,
+                    SCROLLBAR_THICKNESS,
+                    COLOR_SCROLLBAR_TRACK,
+                );
+                draw_solid_rect(
+                    &mut frame,
+                    screen_w,
+                    screen_h,
+                    layout.content_left + tx_offset,
+                    hbar_y,
+                    tw,
+                    SCROLLBAR_THICKNESS,
+                    COLOR_SCROLLBAR_THUMB,
+                );
+            } else {
+                draw_solid_rect(
+                    &mut frame,
+                    screen_w,
+                    screen_h,
+                    layout.content_left,
+                    hbar_y,
+                    track_w,
+                    SCROLLBAR_THICKNESS,
+                    COLOR_SCROLLBAR_TRACK,
+                );
+            }
+
+            draw_solid_rect(
+                &mut frame,
+                screen_w,
+                screen_h,
+                vbar_x,
+                hbar_y,
                 SCROLLBAR_THICKNESS,
                 SCROLLBAR_THICKNESS,
                 COLOR_SCROLLBAR_TRACK,

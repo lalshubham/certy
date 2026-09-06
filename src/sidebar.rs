@@ -10,6 +10,7 @@ pub enum MenuItem {
     OpenFile,
     OpenFolder,
     Save,
+    Terminal,
     CloseFolder,
     Exit,
 }
@@ -52,7 +53,7 @@ impl Sidebar {
         }
     }
 
-    pub fn menu_items(&self) -> [(MenuItem, &'static str); 6] {
+    pub fn menu_items(&self) -> [(MenuItem, &'static str); 7] {
         let last = if self.root_folder.is_some() {
             (MenuItem::CloseFolder, "Close Folder")
         } else {
@@ -64,13 +65,14 @@ impl Sidebar {
             (MenuItem::OpenFile, "Open File"),
             (MenuItem::OpenFolder, "Open Folder"),
             (MenuItem::Save, "Save"),
+            (MenuItem::Terminal, "Terminal"),
             last,
         ]
     }
 
     pub fn menu_total_height(&self) -> usize {
         if self.menu_expanded {
-            TAB_BAR_HEIGHT + 6 * SIDEBAR_ROW_HEIGHT
+            TAB_BAR_HEIGHT + 7 * SIDEBAR_ROW_HEIGHT
         } else {
             TAB_BAR_HEIGHT
         }

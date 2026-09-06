@@ -7,6 +7,7 @@ mod layout;
 mod renderer;
 mod sidebar;
 mod tabs;
+mod terminal;
 
 use config::{WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH};
 use input::{ActionEvent, InputHandler};
@@ -19,6 +20,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tabs::TabManager;
+use terminal::Terminal;
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
@@ -84,7 +86,7 @@ fn recovery_file_name(path: &Path) -> String {
     format!("{hash:016x}.bak")
 }
 
-fn save_session(sidebar: &Sidebar, tabs: &TabManager) {
+fn save_session(sidebar: &Sidebar, tabs: &TabManager, terminal: &Terminal) {
     if let Some(path) = session_path() {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
@@ -105,6 +107,9 @@ fn save_session(sidebar: &Sidebar, tabs: &TabManager) {
         }
         if let Some(active) = tabs.active_idx {
             content.push_str(&format!("active:{}\n", active));
+        }
+        if terminal.is_open {
+            content.push_str(&format!("terminal:{}\n", terminal.height));
         }
         for tab in &tabs.tabs {
             if let Some(ref p) = tab.buffer.file_path {
@@ -138,6 +143,7 @@ fn save_session(sidebar: &Sidebar, tabs: &TabManager) {
 fn trigger_app_close(
     tabs: &mut TabManager,
     sidebar: &Sidebar,
+    terminal: &Terminal,
     window: &Window,
     event_loop: &ActiveEventLoop,
 ) {
@@ -146,7 +152,7 @@ fn trigger_app_close(
         tabs.pending_close = None;
         window.request_redraw();
     } else {
-        save_session(sidebar, tabs);
+        save_session(sidebar, tabs, terminal);
         event_loop.exit();
     }
 }
@@ -182,6 +188,7 @@ struct App {
     renderer: Option<Renderer>,
     tabs: TabManager,
     sidebar: Sidebar,
+    terminal: Terminal,
     input: InputHandler,
     clipboard: Option<arboard::Clipboard>,
     active_cursor_icon: CursorIcon,
@@ -216,6 +223,11 @@ impl App {
                         expanded_dirs.insert(PathBuf::from(e));
                     } else if let Some(a) = line.strip_prefix("active:") {
                         saved_active = a.parse().ok();
+                    } else if let Some(t) = line.strip_prefix("terminal:") {
+                        if let Ok(h) = t.parse::<usize>() {
+                            self.terminal.is_open = true;
+                            self.terminal.height = h;
+                        }
                     } else if let Some(f) = line.strip_prefix("file:") {
                         if let Some(tab) = current_tab.take() {
                             saved_tabs.push(tab);
@@ -248,6 +260,7 @@ impl App {
 
                 if let Some(p) = saved_folder {
                     if p.is_dir() {
+                        self.terminal.cwd = p.clone();
                         self.sidebar.open_folder_with_expanded(p, &expanded_dirs);
                     }
                 }
@@ -295,7 +308,8 @@ impl ApplicationHandler<AppEvent> for App {
             let attributes = Window::default_attributes()
                 .with_title("Certy")
                 .with_inner_size(LogicalSize::new(1024.0, 768.0))
-                .with_min_inner_size(LogicalSize::new(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT));
+                .with_min_inner_size(LogicalSize::new(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT))
+                .with_maximized(true);
             let window = Arc::new(
                 event_loop
                     .create_window(attributes)
@@ -309,11 +323,32 @@ impl ApplicationHandler<AppEvent> for App {
         }
     }
 
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let lh = self
+            .renderer
+            .as_ref()
+            .map(|r| r.font_manager.line_height)
+            .unwrap_or(17);
+        let vis_rows = self.terminal.vis_rows(lh);
+
+        if self.terminal.poll_output(vis_rows) {
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+        }
+
+        if self.terminal.is_running {
+            event_loop.set_control_flow(ControlFlow::Poll);
+        } else {
+            event_loop.set_control_flow(ControlFlow::Wait);
+        }
+    }
+
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) {
         match event {
             AppEvent::OpenFile(path) => {
                 self.tabs.open_file(path);
-                save_session(&self.sidebar, &self.tabs);
+                save_session(&self.sidebar, &self.tabs, &self.terminal);
                 if let Some(ref r) = self.renderer {
                     let avail_w = r.width.saturating_sub(self.sidebar.width);
                     self.tabs
@@ -321,8 +356,9 @@ impl ApplicationHandler<AppEvent> for App {
                 }
             }
             AppEvent::OpenFolder(path) => {
+                self.terminal.cwd = path.clone();
                 self.sidebar.open_folder(path);
-                save_session(&self.sidebar, &self.tabs);
+                save_session(&self.sidebar, &self.tabs, &self.terminal);
             }
             AppEvent::SaveNewFile(path) => {
                 let _ = fs::File::create(&path);
@@ -335,7 +371,7 @@ impl ApplicationHandler<AppEvent> for App {
                 if let Some(tab) = self.tabs.active_tab_mut() {
                     tab.buffer.is_modified = true;
                 }
-                save_session(&self.sidebar, &self.tabs);
+                save_session(&self.sidebar, &self.tabs, &self.terminal);
                 if let Some(ref r) = self.renderer {
                     let avail_w = r.width.saturating_sub(self.sidebar.width);
                     self.tabs
@@ -353,7 +389,7 @@ impl ApplicationHandler<AppEvent> for App {
                 } else {
                     self.sidebar.open_folder(path);
                 }
-                save_session(&self.sidebar, &self.tabs);
+                save_session(&self.sidebar, &self.tabs, &self.terminal);
             }
         }
         if let Some(window) = &self.window {
@@ -383,17 +419,29 @@ impl ApplicationHandler<AppEvent> for App {
             None => return,
         };
 
+        let term_h = if self.terminal.is_open {
+            self.terminal.height
+        } else {
+            0
+        };
         let total_lines = self
             .tabs
             .active_tab()
             .map(|t| t.buffer.text().len_lines())
             .unwrap_or(0);
-        let layout = compute_layout(screen_w, screen_h, cw, lh, total_lines, self.sidebar.width);
+        let layout = compute_layout(
+            screen_w,
+            screen_h.saturating_sub(term_h),
+            cw,
+            lh,
+            total_lines,
+            self.sidebar.width,
+        );
 
         match event {
             WindowEvent::RedrawRequested => {
                 if let Some(ref mut renderer) = self.renderer {
-                    renderer.render(&self.tabs, &self.sidebar);
+                    renderer.render(&self.tabs, &self.sidebar, &self.terminal);
                 }
             }
 
@@ -406,7 +454,7 @@ impl ApplicationHandler<AppEvent> for App {
                 if let Some(tab) = self.tabs.active_tab_mut() {
                     let l = compute_layout(
                         size.width as usize,
-                        size.height as usize,
+                        (size.height as usize).saturating_sub(term_h),
                         cw,
                         lh,
                         tab.buffer.text().len_lines(),
@@ -427,6 +475,7 @@ impl ApplicationHandler<AppEvent> for App {
                     position.y,
                     &mut self.tabs,
                     &mut self.sidebar,
+                    &mut self.terminal,
                     &layout,
                     cw,
                     lh,
@@ -436,11 +485,21 @@ impl ApplicationHandler<AppEvent> for App {
                     window.request_redraw();
                 }
 
-                let current_layout =
-                    compute_layout(screen_w, screen_h, cw, lh, total_lines, self.sidebar.width);
-                let desired_icon =
-                    self.input
-                        .desired_cursor_icon(&current_layout, &self.tabs, &self.sidebar);
+                let current_layout = compute_layout(
+                    screen_w,
+                    screen_h.saturating_sub(term_h),
+                    cw,
+                    lh,
+                    total_lines,
+                    self.sidebar.width,
+                );
+                let desired_icon = self.input.desired_cursor_icon(
+                    &current_layout,
+                    &self.tabs,
+                    &self.sidebar,
+                    &self.terminal,
+                    screen_h,
+                );
                 if self.active_cursor_icon != desired_icon {
                     self.active_cursor_icon = desired_icon;
                     window.set_cursor(desired_icon);
@@ -453,6 +512,7 @@ impl ApplicationHandler<AppEvent> for App {
                     button,
                     &mut self.tabs,
                     &mut self.sidebar,
+                    &mut self.terminal,
                     &layout,
                     cw,
                     lh,
@@ -513,7 +573,7 @@ impl ApplicationHandler<AppEvent> for App {
                                 if self.sidebar.root_folder.is_some() {
                                     self.sidebar.refresh_folder();
                                 }
-                                save_session(&self.sidebar, &self.tabs);
+                                save_session(&self.sidebar, &self.tabs, &self.terminal);
                                 update_window_title(
                                     &window,
                                     &self.tabs,
@@ -522,6 +582,17 @@ impl ApplicationHandler<AppEvent> for App {
                                 );
                                 window.request_redraw();
                             }
+                        }
+                        MenuItem::Terminal => {
+                            self.terminal.is_open = !self.terminal.is_open;
+                            if self.terminal.is_open {
+                                self.terminal.focused = true;
+                                if let Some(ref root) = self.sidebar.root_folder {
+                                    self.terminal.cwd = root.clone();
+                                }
+                            }
+                            save_session(&self.sidebar, &self.tabs, &self.terminal);
+                            window.request_redraw();
                         }
                         MenuItem::CloseFolder => {
                             if let Some(root) = self.sidebar.root_folder.clone() {
@@ -539,7 +610,7 @@ impl ApplicationHandler<AppEvent> for App {
                                 self.tabs.close_folder_tabs(&root);
                             }
                             self.sidebar.close_folder();
-                            save_session(&self.sidebar, &self.tabs);
+                            save_session(&self.sidebar, &self.tabs, &self.terminal);
                             let avail_w = screen_w.saturating_sub(self.sidebar.width);
                             self.tabs.clamp_scroll(cw, avail_w);
                             self.tabs.ensure_active_tab_visible(cw, avail_w);
@@ -548,6 +619,7 @@ impl ApplicationHandler<AppEvent> for App {
                                 self.input.mouse_y,
                                 &mut self.tabs,
                                 &mut self.sidebar,
+                                &mut self.terminal,
                                 &layout,
                                 cw,
                                 lh,
@@ -563,12 +635,18 @@ impl ApplicationHandler<AppEvent> for App {
                             window.request_redraw();
                         }
                         MenuItem::Exit => {
-                            trigger_app_close(&mut self.tabs, &self.sidebar, &window, event_loop);
+                            trigger_app_close(
+                                &mut self.tabs,
+                                &self.sidebar,
+                                &self.terminal,
+                                &window,
+                                event_loop,
+                            );
                         }
                     },
                     ActionEvent::OpenFile(path) => {
                         self.tabs.open_file(path);
-                        save_session(&self.sidebar, &self.tabs);
+                        save_session(&self.sidebar, &self.tabs, &self.terminal);
                         let avail_w = screen_w.saturating_sub(self.sidebar.width);
                         self.tabs.ensure_active_tab_visible(cw, avail_w);
                         update_window_title(
@@ -587,7 +665,7 @@ impl ApplicationHandler<AppEvent> for App {
                             self.sidebar.refresh_folder();
                         }
                         self.tabs.close_tab(idx);
-                        save_session(&self.sidebar, &self.tabs);
+                        save_session(&self.sidebar, &self.tabs, &self.terminal);
                         let avail_w = screen_w.saturating_sub(self.sidebar.width);
                         self.tabs.clamp_scroll(cw, avail_w);
                         self.tabs.ensure_active_tab_visible(cw, avail_w);
@@ -596,6 +674,7 @@ impl ApplicationHandler<AppEvent> for App {
                             self.input.mouse_y,
                             &mut self.tabs,
                             &mut self.sidebar,
+                            &mut self.terminal,
                             &layout,
                             cw,
                             lh,
@@ -619,7 +698,7 @@ impl ApplicationHandler<AppEvent> for App {
                             }
                         }
                         self.tabs.close_tab(idx);
-                        save_session(&self.sidebar, &self.tabs);
+                        save_session(&self.sidebar, &self.tabs, &self.terminal);
                         let avail_w = screen_w.saturating_sub(self.sidebar.width);
                         self.tabs.clamp_scroll(cw, avail_w);
                         self.tabs.ensure_active_tab_visible(cw, avail_w);
@@ -628,6 +707,7 @@ impl ApplicationHandler<AppEvent> for App {
                             self.input.mouse_y,
                             &mut self.tabs,
                             &mut self.sidebar,
+                            &mut self.terminal,
                             &layout,
                             cw,
                             lh,
@@ -651,7 +731,7 @@ impl ApplicationHandler<AppEvent> for App {
                         if self.sidebar.root_folder.is_some() {
                             self.sidebar.refresh_folder();
                         }
-                        save_session(&self.sidebar, &self.tabs);
+                        save_session(&self.sidebar, &self.tabs, &self.terminal);
                         event_loop.exit();
                     }
                     ActionEvent::DiscardAllAndExit => {
@@ -661,7 +741,7 @@ impl ApplicationHandler<AppEvent> for App {
                         if let Some(rec_dir) = recovery_dir() {
                             let _ = fs::remove_dir_all(&rec_dir);
                         }
-                        save_session(&self.sidebar, &self.tabs);
+                        save_session(&self.sidebar, &self.tabs, &self.terminal);
                         event_loop.exit();
                     }
                     ActionEvent::CancelClose => {
@@ -672,6 +752,7 @@ impl ApplicationHandler<AppEvent> for App {
                             self.input.mouse_y,
                             &mut self.tabs,
                             &mut self.sidebar,
+                            &mut self.terminal,
                             &layout,
                             cw,
                             lh,
@@ -687,7 +768,7 @@ impl ApplicationHandler<AppEvent> for App {
                         window.request_redraw();
                     }
                     ActionEvent::Redraw => {
-                        save_session(&self.sidebar, &self.tabs);
+                        save_session(&self.sidebar, &self.tabs, &self.terminal);
                         update_window_title(
                             &window,
                             &self.tabs,
@@ -699,11 +780,21 @@ impl ApplicationHandler<AppEvent> for App {
                     ActionEvent::None => {}
                 }
 
-                let current_layout =
-                    compute_layout(screen_w, screen_h, cw, lh, total_lines, self.sidebar.width);
-                let desired_icon =
-                    self.input
-                        .desired_cursor_icon(&current_layout, &self.tabs, &self.sidebar);
+                let current_layout = compute_layout(
+                    screen_w,
+                    screen_h.saturating_sub(term_h),
+                    cw,
+                    lh,
+                    total_lines,
+                    self.sidebar.width,
+                );
+                let desired_icon = self.input.desired_cursor_icon(
+                    &current_layout,
+                    &self.tabs,
+                    &self.sidebar,
+                    &self.terminal,
+                    screen_h,
+                );
                 if self.active_cursor_icon != desired_icon {
                     self.active_cursor_icon = desired_icon;
                     window.set_cursor(desired_icon);
@@ -713,7 +804,13 @@ impl ApplicationHandler<AppEvent> for App {
             WindowEvent::Focused(is_focused) => {
                 if !is_focused {
                     self.input.drag = input::DragState::None;
+                    self.input.is_left_down = false;
                 }
+            }
+
+            WindowEvent::CursorLeft { .. } => {
+                self.input.drag = input::DragState::None;
+                self.input.is_left_down = false;
             }
 
             WindowEvent::MouseWheel { delta, .. } => {
@@ -721,6 +818,7 @@ impl ApplicationHandler<AppEvent> for App {
                     delta,
                     &mut self.tabs,
                     &mut self.sidebar,
+                    &mut self.terminal,
                     &layout,
                     cw,
                     lh,
@@ -736,15 +834,26 @@ impl ApplicationHandler<AppEvent> for App {
                 let is_f4 = matches!(event.physical_key, PhysicalKey::Code(KeyCode::F4))
                     || matches!(event.logical_key, Key::Named(NamedKey::F4));
                 if event.state == ElementState::Pressed && is_alt && is_f4 {
-                    trigger_app_close(&mut self.tabs, &self.sidebar, &window, event_loop);
+                    trigger_app_close(
+                        &mut self.tabs,
+                        &self.sidebar,
+                        &self.terminal,
+                        &window,
+                        event_loop,
+                    );
                     return;
                 }
 
-                if self
-                    .input
-                    .handle_key(&event, &mut self.tabs, &layout, &mut self.clipboard)
-                {
-                    save_session(&self.sidebar, &self.tabs);
+                if self.input.handle_key(
+                    &event,
+                    &mut self.tabs,
+                    &mut self.terminal,
+                    &layout,
+                    cw,
+                    lh,
+                    &mut self.clipboard,
+                ) {
+                    save_session(&self.sidebar, &self.tabs, &self.terminal);
                     update_window_title(
                         &window,
                         &self.tabs,
@@ -756,7 +865,13 @@ impl ApplicationHandler<AppEvent> for App {
             }
 
             WindowEvent::CloseRequested => {
-                trigger_app_close(&mut self.tabs, &self.sidebar, &window, event_loop);
+                trigger_app_close(
+                    &mut self.tabs,
+                    &self.sidebar,
+                    &self.terminal,
+                    &window,
+                    event_loop,
+                );
             }
             _ => {}
         }
@@ -775,6 +890,7 @@ fn main() {
         renderer: None,
         tabs: TabManager::new(),
         sidebar: Sidebar::new(),
+        terminal: Terminal::new(),
         input: InputHandler::default(),
         clipboard: arboard::Clipboard::new().ok(),
         active_cursor_icon: CursorIcon::Default,
