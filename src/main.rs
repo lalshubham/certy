@@ -337,7 +337,19 @@ impl ApplicationHandler<AppEvent> for App {
             .unwrap_or(17);
         let vis_rows = self.terminal.vis_rows(lh);
 
-        if self.terminal.poll_output(vis_rows) {
+        let output_updated = self.terminal.poll_output(vis_rows);
+
+        if self.terminal.needs_fs_refresh {
+            self.terminal.needs_fs_refresh = false;
+            if self.sidebar.root_folder.is_some() {
+                self.sidebar.refresh_folder();
+                let screen_h = self.renderer.as_ref().map(|r| r.height).unwrap_or(768);
+                self.sidebar.clamp_scroll(screen_h);
+            }
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+        } else if output_updated {
             if let Some(w) = &self.window {
                 w.request_redraw();
             }
@@ -851,6 +863,10 @@ impl ApplicationHandler<AppEvent> for App {
                 if !is_focused {
                     self.input.drag = input::DragState::None;
                     self.input.is_left_down = false;
+                } else if self.sidebar.root_folder.is_some() {
+                    self.sidebar.refresh_folder();
+                    self.sidebar.clamp_scroll(screen_h);
+                    window.request_redraw();
                 }
             }
 

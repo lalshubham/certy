@@ -90,6 +90,7 @@ pub struct TerminalTab {
     pub scroll_col: usize,
     pub max_line_len: usize,
     pub is_running: bool,
+    pub command_finished: bool,
     pub selection_anchor: Option<(usize, usize)>,
     pub selection_end: Option<(usize, usize)>,
     output_rx: Receiver<TermMsg>,
@@ -113,6 +114,7 @@ impl TerminalTab {
             scroll_col: 0,
             max_line_len: 0,
             is_running: false,
+            command_finished: false,
             selection_anchor: None,
             selection_end: None,
             output_rx,
@@ -309,6 +311,7 @@ impl TerminalTab {
                         });
                     }
                     self.is_running = false;
+                    self.command_finished = true;
                     self.scroll_col = 0;
                     self.auto_scroll_to_bottom(vis_rows);
                     updated = true;
@@ -508,6 +511,7 @@ impl TerminalTab {
             let _ = c.wait();
 
             self.is_running = false;
+            self.command_finished = true;
 
             while let Ok(msg) = self.output_rx.try_recv() {
                 if let TermMsg::Chunk(s) = msg {
@@ -552,6 +556,7 @@ impl TerminalTab {
             });
             self.current_input.clear();
             self.cursor_col = 0;
+            self.command_finished = true;
             self.auto_scroll_to_bottom(vis_rows);
         }
     }
@@ -574,6 +579,7 @@ impl TerminalTab {
             let _ = c.wait();
         }
         self.is_running = false;
+        self.command_finished = true;
     }
 
     pub fn history_up(&mut self) {
@@ -649,6 +655,7 @@ pub struct Terminal {
     pub hovered_new: bool,
     pub hovered_tab: Option<usize>,
     pub hovered_close_tab: Option<usize>,
+    pub needs_fs_refresh: bool,
 }
 
 impl Terminal {
@@ -666,6 +673,7 @@ impl Terminal {
             hovered_new: false,
             hovered_tab: None,
             hovered_close_tab: None,
+            needs_fs_refresh: false,
         }
     }
 
@@ -759,6 +767,10 @@ impl Terminal {
         for tab in &mut self.tabs {
             if tab.poll_output(vis_rows) {
                 updated = true;
+            }
+            if tab.command_finished {
+                tab.command_finished = false;
+                self.needs_fs_refresh = true;
             }
         }
         updated
