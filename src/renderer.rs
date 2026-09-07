@@ -533,7 +533,8 @@ impl Renderer {
             let sel_range = buffer.selection_range();
 
             let gutter_x = layout.content_left;
-            let gutter_h = layout.content_bottom.saturating_sub(TAB_BAR_HEIGHT);
+            let gutter_h =
+                layout.content_bottom.saturating_sub(TAB_BAR_HEIGHT) + SCROLLBAR_THICKNESS;
             draw_solid_rect(
                 &mut frame,
                 screen_w,
@@ -684,7 +685,7 @@ impl Renderer {
                     TAB_BAR_HEIGHT,
                     SCROLLBAR_THICKNESS,
                     usable_track_h,
-                    COLOR_SCROLLBAR_TRACK,
+                    COLOR_BACKGROUND,
                 );
                 draw_solid_rect(
                     &mut frame,
@@ -707,7 +708,7 @@ impl Renderer {
                     layout.content_bottom,
                     horiz_track_w,
                     SCROLLBAR_THICKNESS,
-                    COLOR_SCROLLBAR_TRACK,
+                    COLOR_BACKGROUND,
                 );
                 draw_solid_rect(
                     &mut frame,
@@ -728,7 +729,7 @@ impl Renderer {
                 layout.content_bottom,
                 SCROLLBAR_THICKNESS,
                 SCROLLBAR_THICKNESS,
-                COLOR_SCROLLBAR_TRACK,
+                COLOR_BACKGROUND,
             );
         }
 

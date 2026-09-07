@@ -44,7 +44,7 @@ pub fn compute_layout(
     let digits = total_lines.to_string().len().max(3);
     let gutter_width = GUTTER_PADDING * 2 + digits * char_w;
     let code_x = content_left + gutter_width + CODE_LEFT_MARGIN;
-    let bar_start_x = content_left + gutter_width;
+    let bar_start_x = content_left + gutter_width + 1;
 
     let code_w = content_right.saturating_sub(code_x);
     let code_h = content_bottom.saturating_sub(TAB_BAR_HEIGHT + TOP_PADDING);

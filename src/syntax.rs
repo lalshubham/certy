@@ -948,7 +948,6 @@ pub fn highlight_line(
             ) && chars[i] == '\'')
         {
             let quote = chars[i];
-            let start = i;
             colors[i] = SYNTAX_STRING;
             i += 1;
             while i < len {
