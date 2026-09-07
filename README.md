@@ -6,14 +6,13 @@ Certy is a lightweight and low-memory coding IDE written in Rust.<br />
 
 ## Features
 
-* Create new files and folders, open files and folders, save changes, close folders, and exit the IDE.
-* Browse the files and folders of the currently opened directory from the sidebar.
+* New File and Folder, Open File and Folder, Close Folder, Save and Exit.
+* Browse the files and folders from the sidebar.
 * Open and work with multiple files at the same time in the editor.
-* Common keyboard shortcuts like `Ctrl+X`, `Ctrl+C`, `Ctrl+V`, `Ctrl+Z`, `Ctrl+Y`, `Ctrl+A`, and `Ctrl+S`.
-* Built-in terminal to run commands directly inside the IDE.
-* Show options to **Save**, **Discard**, or **Cancel** before closing a file or exiting the IDE.
-* Restart the IDE with the same folder and previously opened files from the last session.
-* Recover unsaved changes after an unexpected shutdown or crash.
+* Create and manage multiple terminals.
+* Ctrl+X, Ctrl+C, Ctrl+V, Ctrl+Z, Ctrl+Y, Ctrl+A and Ctrl+S.
+* Save, Discard, or Cancel before closing files and exit.
+* Restore previous session- files, foders and unsaved changes.
 
 ## Prerequisites
 
@@ -53,4 +52,4 @@ cargo --version
 
 ## Contributing
 
-Contributions, bug reports, and performance profiling feedback are welcome. Feel free to open an issue or submit a pull request.
+Bug reports and contributions are welcome. Feel free to open an issue or create a pull request.
