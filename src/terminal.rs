@@ -149,28 +149,20 @@ impl TerminalTab {
     }
 
     pub fn total_lines(&self) -> usize {
-        let mut count = self.lines.len();
-        if !self.partial_line.is_empty() {
-            count += 1;
-        }
-        if !self.is_running {
-            count += 1;
-        }
-        count
+        self.lines.len() + 1
     }
 
     pub fn max_content_cols(&self) -> usize {
         let mut max_c = self.max_line_len;
-        if !self.is_running {
+        if self.is_running {
+            let running_len = self.partial_line.chars().count();
+            if running_len > max_c {
+                max_c = running_len;
+            }
+        } else {
             let active_len = self.prompt().chars().count() + self.current_input.chars().count();
             if active_len > max_c {
                 max_c = active_len;
-            }
-        }
-        if !self.partial_line.is_empty() {
-            let partial_len = self.partial_line.chars().count();
-            if partial_len > max_c {
-                max_c = partial_len;
             }
         }
         max_c
@@ -219,10 +211,12 @@ impl TerminalTab {
     pub fn get_line_text(&self, idx: usize) -> Option<String> {
         if idx < self.lines.len() {
             Some(self.lines[idx].full_text())
-        } else if idx == self.lines.len() && !self.partial_line.is_empty() {
-            Some(self.partial_line.clone())
-        } else if !self.is_running && idx == self.total_lines().saturating_sub(1) {
-            Some(format!("{}{}", self.prompt(), self.current_input))
+        } else if idx == self.lines.len() {
+            if self.is_running {
+                Some(self.partial_line.clone())
+            } else {
+                Some(format!("{}{}", self.prompt(), self.current_input))
+            }
         } else {
             None
         }
@@ -321,9 +315,9 @@ impl TerminalTab {
         updated
     }
 
-    pub fn execute_command(&mut self, vis_rows: usize) {
+    pub fn execute_command(&mut self, vis_rows: usize) -> bool {
         if self.is_running {
-            return;
+            return false;
         }
 
         if !self.partial_line.is_empty() {
@@ -355,7 +349,7 @@ impl TerminalTab {
         self.auto_scroll_to_bottom(vis_rows);
 
         if cmd.is_empty() {
-            return;
+            return false;
         }
 
         if self.history.last() != Some(&cmd) {
@@ -369,11 +363,11 @@ impl TerminalTab {
             self.max_line_len = 0;
             self.scroll_line = 0;
             self.scroll_col = 0;
-            return;
+            return false;
         }
 
         if cmd == "exit" {
-            return;
+            return true;
         }
 
         if cmd.starts_with("cd ") || cmd == "cd" {
@@ -408,7 +402,7 @@ impl TerminalTab {
                 });
             }
             self.auto_scroll_to_bottom(vis_rows);
-            return;
+            return false;
         }
 
         self.is_running = true;
@@ -487,6 +481,7 @@ impl TerminalTab {
                 }
             }
         });
+        false
     }
 
     pub fn interrupt(&mut self, vis_rows: usize) {

@@ -1269,6 +1269,8 @@ impl InputHandler {
                     _ => false,
                 };
 
+            let mut should_exit = false;
+
             if let Some(tab) = terminal.active_tab_mut() {
                 if is_ctrl && is_c {
                     if let Some(text) = tab.selected_text() {
@@ -1313,8 +1315,11 @@ impl InputHandler {
 
                 match &event.logical_key {
                     Key::Named(NamedKey::Enter) => {
-                        tab.execute_command(vis_rows);
-                        return true;
+                        if tab.execute_command(vis_rows) {
+                            should_exit = true;
+                        } else {
+                            return true;
+                        }
                     }
                     Key::Named(NamedKey::Backspace) => {
                         tab.delete_backwards();
@@ -1371,6 +1376,17 @@ impl InputHandler {
                     }
                 }
             }
+
+            if should_exit {
+                let new_btn_w = "New".len() * char_w + 20;
+                let strip_min_x = layout.content_left + new_btn_w;
+                let strip_max_x = screen_w;
+                let available_w = strip_max_x.saturating_sub(strip_min_x);
+                let active_idx = terminal.active_idx;
+                terminal.remove_terminal(active_idx, char_w, available_w);
+                return true;
+            }
+
             return false;
         }
 

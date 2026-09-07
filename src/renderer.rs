@@ -982,58 +982,71 @@ impl Renderer {
                                 COLOR_TEXT_DEFAULT,
                             );
                         }
-                    } else if line_idx == active_tab.lines.len()
-                        && !active_tab.partial_line.is_empty()
-                    {
-                        draw_string_clipped(
-                            &mut self.font_manager,
-                            &mut frame,
-                            &active_tab.partial_line,
-                            base_px,
-                            py as i32,
-                            text_left,
-                            text_right,
-                            screen_w,
-                            screen_h,
-                            COLOR_TEXT_DEFAULT,
-                        );
-                    } else if !active_tab.is_running
-                        && line_idx
-                            == (active_tab.lines.len()
-                                + if !active_tab.partial_line.is_empty() {
-                                    1
-                                } else {
-                                    0
-                                })
-                    {
-                        let p = active_tab.prompt();
-                        draw_string_clipped(
-                            &mut self.font_manager,
-                            &mut frame,
-                            &p,
-                            base_px,
-                            py as i32,
-                            text_left,
-                            text_right,
-                            screen_w,
-                            screen_h,
-                            0xFF4EC9B0,
-                        );
-                        let input_x = base_px + (p.chars().count() * cw) as i32;
-                        draw_string_clipped(
-                            &mut self.font_manager,
-                            &mut frame,
-                            &active_tab.current_input,
-                            input_x,
-                            py as i32,
-                            text_left,
-                            text_right,
-                            screen_w,
-                            screen_h,
-                            COLOR_TEXT_DEFAULT,
-                        );
+                    } else if line_idx == active_tab.lines.len() {
+                        let cursor_color = if terminal.focused {
+                            COLOR_CURSOR
+                        } else {
+                            COLOR_LINE_NUMBER_MUTED
+                        };
 
-                        if terminal.focused {
+                        if active_tab.is_running {
+                            if !active_tab.partial_line.is_empty() {
+                                draw_string_clipped(
+                                    &mut self.font_manager,
+                                    &mut frame,
+                                    &active_tab.partial_line,
+                                    base_px,
+                                    py as i32,
+                                    text_left,
+                                    text_right,
+                                    screen_w,
+                                    screen_h,
+                                    COLOR_TEXT_DEFAULT,
+                                );
+                            }
+
+                            let cur_col = active_tab.partial_line.chars().count();
+                            let cur_px = base_px + (cur_col * cw) as i32;
+                            if cur_px >= text_left as i32 && (cur_px as usize + 2) <= text_right {
+                                draw_solid_rect(
+                                    &mut frame,
+                                    screen_w,
+                                    screen_h,
+                                    cur_px as usize,
+                                    py,
+                                    2,
+                                    lh,
+                                    cursor_color,
+                                );
+                            }
+                        } else {
+                            let p = active_tab.prompt();
+                            draw_string_clipped(
+                                &mut self.font_manager,
+                                &mut frame,
+                                &p,
+                                base_px,
+                                py as i32,
+                                text_left,
+                                text_right,
+                                screen_w,
+                                screen_h,
+                                0xFF4EC9B0,
+                            );
+                            let input_x = base_px + (p.chars().count() * cw) as i32;
+                            draw_string_clipped(
+                                &mut self.font_manager,
+                                &mut frame,
+                                &active_tab.current_input,
+                                input_x,
+                                py as i32,
+                                text_left,
+                                text_right,
+                                screen_w,
+                                screen_h,
+                                COLOR_TEXT_DEFAULT,
+                            );
+
                             let cur_px = input_x + (active_tab.cursor_col * cw) as i32;
                             if cur_px >= text_left as i32 && (cur_px as usize + 2) <= text_right {
                                 draw_solid_rect(
@@ -1044,7 +1057,7 @@ impl Renderer {
                                     py,
                                     2,
                                     lh,
-                                    COLOR_CURSOR,
+                                    cursor_color,
                                 );
                             }
                         }
