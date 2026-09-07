@@ -198,6 +198,13 @@ impl InputHandler {
                     CursorIcon::Default
                 };
             }
+
+            let vbar_x = layout.content_right;
+            let hbar_y = screen_h.saturating_sub(SCROLLBAR_THICKNESS);
+            if mx >= vbar_x || my >= hbar_y {
+                return CursorIcon::Default;
+            }
+
             if my >= term_y + TERMINAL_TAB_BAR_HEIGHT {
                 return CursorIcon::Text;
             }

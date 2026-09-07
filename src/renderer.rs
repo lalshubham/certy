@@ -3,6 +3,7 @@ use crate::font::FontManager;
 use crate::input::ContextMenu;
 use crate::layout::{calc_thumb, compute_layout, compute_modal_layout, ViewportLayout};
 use crate::sidebar::{MenuItem, Sidebar};
+use crate::syntax::{self, Language};
 use crate::tabs::TabManager;
 use crate::terminal::Terminal;
 use softbuffer::{Context, Surface};
@@ -554,6 +555,10 @@ impl Renderer {
                 COLOR_GUTTER_SEPARATOR,
             );
 
+            let language = Language::from_path(buffer.file_path.as_deref());
+            let mut in_comment_state =
+                syntax::compute_initial_comment_state(buffer.text(), buffer.scroll_line, language);
+
             let digits = total_lines.to_string().len().max(3);
             for row in 0..=layout.visible_lines {
                 let line_idx = buffer.scroll_line + row;
@@ -582,11 +587,20 @@ impl Renderer {
 
                 let line = buffer.text().line(line_idx);
                 let line_start_char = buffer.text().line_to_char(line_idx);
+                let line_chars: Vec<char> = line
+                    .chars()
+                    .take_while(|&c| c != '\n' && c != '\r')
+                    .collect();
 
-                for (col_idx, ch) in line.chars().enumerate() {
-                    if ch == '\n' || ch == '\r' {
-                        break;
-                    }
+                let (syntax_colors, next_comment_state) = syntax::highlight_line(
+                    &line_chars,
+                    language,
+                    in_comment_state,
+                    COLOR_TEXT_DEFAULT,
+                );
+                in_comment_state = next_comment_state;
+
+                for (col_idx, &ch) in line_chars.iter().enumerate() {
                     if col_idx < buffer.scroll_col {
                         continue;
                     }
@@ -612,6 +626,11 @@ impl Renderer {
                         }
                     }
 
+                    let char_color = syntax_colors
+                        .get(col_idx)
+                        .copied()
+                        .unwrap_or(COLOR_TEXT_DEFAULT);
+
                     self.font_manager.draw_char(
                         &mut frame,
                         ch,
@@ -619,7 +638,7 @@ impl Renderer {
                         y as i32,
                         screen_w,
                         screen_h,
-                        COLOR_TEXT_DEFAULT,
+                        char_color,
                     );
                 }
             }
@@ -1316,9 +1335,9 @@ impl Renderer {
                 "Open Sidebar"
             };
             let close_files_label = if tabs.tabs.len() <= 1 {
-                "Close file"
+                "Close File"
             } else {
-                "Close files"
+                "Close Files"
             };
             let has_files = !tabs.tabs.is_empty();
 

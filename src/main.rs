@@ -6,6 +6,7 @@ mod input;
 mod layout;
 mod renderer;
 mod sidebar;
+mod syntax;
 mod tabs;
 mod terminal;
 
