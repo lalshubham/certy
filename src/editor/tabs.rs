@@ -1,4 +1,4 @@
-use crate::buffer::EditorBuffer;
+use super::buffer::EditorBuffer;
 use std::path::{Path, PathBuf};
 
 pub struct Tab {

@@ -1,4 +1,4 @@
-use crate::history::{EditAction, History};
+use super::history::{EditAction, History};
 use ropey::Rope;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Write};

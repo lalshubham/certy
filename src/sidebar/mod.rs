@@ -1,6 +1,9 @@
+pub mod tree;
+
+pub use tree::{build_dir_tree, read_dir_nodes, FileNode};
+
 use crate::config::{SIDEBAR_INITIAL_WIDTH, SIDEBAR_ROW_HEIGHT, TAB_BAR_HEIGHT};
 use std::collections::HashSet;
-use std::fs;
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -12,15 +15,6 @@ pub enum MenuItem {
     OpenFolder,
     CloseFolder,
     Exit,
-}
-
-#[derive(Clone)]
-pub struct FileNode {
-    pub path: PathBuf,
-    pub name: String,
-    pub is_dir: bool,
-    pub depth: usize,
-    pub is_expanded: bool,
 }
 
 pub struct Sidebar {
@@ -180,48 +174,4 @@ impl Sidebar {
             }
         }
     }
-}
-
-fn build_dir_tree(dir: &PathBuf, depth: usize, expanded: &HashSet<PathBuf>) -> Vec<FileNode> {
-    let mut result = Vec::new();
-    let entries = read_dir_nodes(dir, depth);
-    for mut node in entries {
-        if node.is_dir && expanded.contains(&node.path) {
-            node.is_expanded = true;
-            let children = build_dir_tree(&node.path, depth + 1, expanded);
-            result.push(node);
-            result.extend(children);
-        } else {
-            result.push(node);
-        }
-    }
-    result
-}
-
-fn read_dir_nodes(dir: &PathBuf, depth: usize) -> Vec<FileNode> {
-    let mut entries = Vec::new();
-    if let Ok(read_dir) = fs::read_dir(dir) {
-        for entry in read_dir.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            let is_dir = path.is_dir();
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("?")
-                .to_string();
-            entries.push(FileNode {
-                path,
-                name,
-                is_dir,
-                depth,
-                is_expanded: false,
-            });
-        }
-    }
-    entries.sort_by(|a, b| {
-        b.is_dir
-            .cmp(&a.is_dir)
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
-    entries
 }

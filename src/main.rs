@@ -1,29 +1,24 @@
-mod buffer;
 mod config;
-mod font;
-mod history;
+mod editor;
 mod input;
-mod layout;
-mod renderer;
+mod session;
 mod sidebar;
 mod syntax;
-mod tabs;
 mod terminal;
+mod ui;
 
 use config::{
     SIDEBAR_MIN_WIDTH, TAB_BAR_HEIGHT, TERMINAL_TAB_BAR_HEIGHT, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH,
 };
-use input::{ActionEvent, InputHandler};
-use layout::compute_layout;
-use renderer::Renderer;
+use editor::TabManager;
+use input::{ActionEvent, AppEvent, InputHandler};
+use session::{load_session, recovery_dir, recovery_file_name, save_session};
 use sidebar::{MenuItem, Sidebar};
-use std::collections::HashSet;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tabs::TabManager;
 use terminal::Terminal;
+use ui::{compute_layout, Renderer};
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
@@ -32,14 +27,6 @@ use winit::{
     keyboard::{Key, KeyCode, NamedKey, PhysicalKey},
     window::{CursorIcon, Window, WindowId},
 };
-
-#[derive(Debug)]
-pub enum AppEvent {
-    SaveNewFile(PathBuf),
-    OpenFile(PathBuf),
-    OpenFolder(PathBuf),
-    CreateFolder(PathBuf),
-}
 
 fn to_full_path(path: &Path) -> String {
     if let Ok(canon) = fs::canonicalize(path) {
@@ -50,93 +37,6 @@ fn to_full_path(path: &Path) -> String {
         cwd.join(path).display().to_string()
     } else {
         path.display().to_string()
-    }
-}
-
-fn session_path() -> Option<PathBuf> {
-    #[cfg(target_os = "windows")]
-    {
-        if let Some(appdata) = std::env::var_os("APPDATA") {
-            return Some(PathBuf::from(appdata).join("certy").join("session.txt"));
-        }
-    }
-    if let Some(config_home) = std::env::var_os("XDG_CONFIG_HOME") {
-        Some(PathBuf::from(config_home).join("certy").join("session.txt"))
-    } else if let Some(home) = std::env::var_os("HOME") {
-        Some(
-            PathBuf::from(home)
-                .join(".config")
-                .join("certy")
-                .join("session.txt"),
-        )
-    } else {
-        std::env::current_dir()
-            .ok()
-            .map(|p| p.join(".certy_session"))
-    }
-}
-
-fn recovery_dir() -> Option<PathBuf> {
-    session_path().and_then(|p| p.parent().map(|d| d.join("recovery")))
-}
-
-fn recovery_file_name(path: &Path) -> String {
-    let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in path.to_string_lossy().as_bytes() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("{hash:016x}.bak")
-}
-
-fn save_session(sidebar: &Sidebar, tabs: &TabManager) {
-    if let Some(path) = session_path() {
-        if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        let rec_dir = path.parent().map(|d| d.join("recovery"));
-        if let Some(ref rd) = rec_dir {
-            let _ = fs::create_dir_all(rd);
-        }
-
-        let mut content = String::new();
-        if let Some(ref root) = sidebar.root_folder {
-            content.push_str(&format!("folder:{}\n", root.display()));
-        }
-        for node in &sidebar.nodes {
-            if node.is_dir && node.is_expanded {
-                content.push_str(&format!("expanded:{}\n", node.path.display()));
-            }
-        }
-        if let Some(active) = tabs.active_idx {
-            content.push_str(&format!("active:{}\n", active));
-        }
-        for tab in &tabs.tabs {
-            if let Some(ref p) = tab.buffer.file_path {
-                content.push_str(&format!("file:{}\n", p.display()));
-                content.push_str(&format!(
-                    "cursor:{},{},{}\n",
-                    tab.buffer.cursor_char, tab.buffer.scroll_line, tab.buffer.scroll_col
-                ));
-                if let Some(ref rd) = rec_dir {
-                    let rec_name = recovery_file_name(p);
-                    let rec_file = rd.join(&rec_name);
-                    if tab.buffer.is_modified {
-                        if let Ok(file) = fs::File::create(&rec_file) {
-                            let mut writer = std::io::BufWriter::new(file);
-                            for chunk in tab.buffer.text().chunks() {
-                                let _ = writer.write_all(chunk.as_bytes());
-                            }
-                            let _ = writer.flush();
-                        }
-                        content.push_str(&format!("recovery:{}\n", rec_name));
-                    } else if rec_file.exists() {
-                        let _ = fs::remove_file(&rec_file);
-                    }
-                }
-            }
-        }
-        let _ = fs::write(path, content);
     }
 }
 
@@ -199,104 +99,54 @@ struct App {
 }
 
 impl App {
-    fn load_session(&mut self) {
-        if let Some(path) = session_path() {
-            if let Ok(content) = fs::read_to_string(path) {
-                let mut saved_active: Option<usize> = None;
-                let mut saved_folder: Option<PathBuf> = None;
-                let mut expanded_dirs: HashSet<PathBuf> = HashSet::new();
-                let rec_dir = recovery_dir();
+    fn apply_loaded_session(&mut self) {
+        let session = match load_session() {
+            Some(s) => s,
+            None => return,
+        };
 
-                struct SavedTab {
-                    path: PathBuf,
-                    cursor: usize,
-                    scroll_line: usize,
-                    scroll_col: usize,
-                    recovery: Option<String>,
+        let rec_dir = recovery_dir();
+
+        if let Some(p) = session.folder {
+            if p.is_dir() {
+                self.terminal.default_cwd = p.clone();
+                for tab in &mut self.terminal.tabs {
+                    tab.cwd = p.clone();
                 }
+                self.sidebar.open_folder_with_expanded(p, &session.expanded);
+            }
+        }
 
-                let mut saved_tabs: Vec<SavedTab> = Vec::new();
-                let mut current_tab: Option<SavedTab> = None;
-
-                for line in content.lines() {
-                    if let Some(f) = line.strip_prefix("folder:") {
-                        saved_folder = Some(PathBuf::from(f));
-                    } else if let Some(e) = line.strip_prefix("expanded:") {
-                        expanded_dirs.insert(PathBuf::from(e));
-                    } else if let Some(a) = line.strip_prefix("active:") {
-                        saved_active = a.parse().ok();
-                    } else if let Some(f) = line.strip_prefix("file:") {
-                        if let Some(tab) = current_tab.take() {
-                            saved_tabs.push(tab);
-                        }
-                        current_tab = Some(SavedTab {
-                            path: PathBuf::from(f),
-                            cursor: 0,
-                            scroll_line: 0,
-                            scroll_col: 0,
-                            recovery: None,
-                        });
-                    } else if let Some(c) = line.strip_prefix("cursor:") {
-                        if let Some(ref mut tab) = current_tab {
-                            let parts: Vec<&str> = c.split(',').collect();
-                            if parts.len() == 3 {
-                                tab.cursor = parts[0].parse().unwrap_or(0);
-                                tab.scroll_line = parts[1].parse().unwrap_or(0);
-                                tab.scroll_col = parts[2].parse().unwrap_or(0);
-                            }
-                        }
-                    } else if let Some(r) = line.strip_prefix("recovery:") {
-                        if let Some(ref mut tab) = current_tab {
-                            tab.recovery = Some(r.to_string());
-                        }
+        for stab in session.tabs {
+            if !stab.path.is_file() {
+                continue;
+            }
+            let mut opened = false;
+            if let Some(ref r) = stab.recovery {
+                if let Some(ref rd) = rec_dir {
+                    let rf = rd.join(r);
+                    if rf.is_file() {
+                        self.tabs.open_recovered(stab.path.clone(), &rf);
+                        opened = true;
                     }
                 }
-                if let Some(tab) = current_tab.take() {
-                    saved_tabs.push(tab);
-                }
+            }
+            if !opened {
+                self.tabs.open_file(stab.path);
+            }
 
-                if let Some(p) = saved_folder {
-                    if p.is_dir() {
-                        self.terminal.default_cwd = p.clone();
-                        for tab in &mut self.terminal.tabs {
-                            tab.cwd = p.clone();
-                        }
-                        self.sidebar.open_folder_with_expanded(p, &expanded_dirs);
-                    }
-                }
+            if let Some(tab) = self.tabs.tabs.last_mut() {
+                let max_chars = tab.buffer.text().len_chars();
+                tab.buffer.cursor_char = stab.cursor.min(max_chars);
+                let max_lines = tab.buffer.text().len_lines().saturating_sub(1);
+                tab.buffer.scroll_line = stab.scroll_line.min(max_lines);
+                tab.buffer.scroll_col = stab.scroll_col.min(tab.buffer.max_line_len);
+            }
+        }
 
-                for stab in saved_tabs {
-                    if !stab.path.is_file() {
-                        continue;
-                    }
-                    let mut opened = false;
-                    if let Some(ref r) = stab.recovery {
-                        if let Some(ref rd) = rec_dir {
-                            let rf = rd.join(r);
-                            if rf.is_file() {
-                                self.tabs.open_recovered(stab.path.clone(), &rf);
-                                opened = true;
-                            }
-                        }
-                    }
-                    if !opened {
-                        self.tabs.open_file(stab.path);
-                    }
-
-                    if let Some(tab) = self.tabs.tabs.last_mut() {
-                        let max_chars = tab.buffer.text().len_chars();
-                        tab.buffer.cursor_char = stab.cursor.min(max_chars);
-                        let max_lines = tab.buffer.text().len_lines().saturating_sub(1);
-                        tab.buffer.scroll_line = stab.scroll_line.min(max_lines);
-                        tab.buffer.scroll_col = stab.scroll_col.min(tab.buffer.max_line_len);
-                    }
-                }
-
-                if let Some(act) = saved_active {
-                    if act < self.tabs.tabs.len() {
-                        self.tabs.active_idx = Some(act);
-                    }
-                }
+        if let Some(act) = session.active_idx {
+            if act < self.tabs.tabs.len() {
+                self.tabs.active_idx = Some(act);
             }
         }
     }
@@ -1174,7 +1024,7 @@ fn main() {
         event_proxy,
     };
 
-    app.load_session();
+    app.apply_loaded_session();
 
     event_loop
         .run_app(&mut app)

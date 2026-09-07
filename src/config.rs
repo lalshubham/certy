@@ -31,13 +31,14 @@ pub const COLOR_BTN_DANGER: u32 = 0xFF8B2525;
 
 pub const WINDOW_MIN_WIDTH: f64 = 480.0;
 pub const WINDOW_MIN_HEIGHT: f64 = 260.0;
-
 pub const FONT_SIZE: f32 = 16.0;
+
 pub const TAB_BAR_HEIGHT: usize = 34;
 pub const TERMINAL_TAB_BAR_HEIGHT: usize = 30;
 pub const SIDEBAR_INITIAL_WIDTH: usize = 230;
 pub const SIDEBAR_MIN_WIDTH: usize = 185;
 pub const SIDEBAR_ROW_HEIGHT: usize = 34;
+
 pub const TOP_PADDING: usize = 12;
 pub const GUTTER_PADDING: usize = 12;
 pub const CODE_LEFT_MARGIN: usize = 14;

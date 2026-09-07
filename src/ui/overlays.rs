@@ -1,66 +1,123 @@
+use super::canvas::{draw_solid_rect, draw_string};
+use super::font::FontManager;
 use crate::config::*;
-use crate::tabs::TabManager;
+use crate::editor::TabManager;
 
-pub struct ViewportLayout {
-    pub content_left: usize,
-    pub content_right: usize,
-    pub content_bottom: usize,
-    pub gutter_width: usize,
-    pub code_x: usize,
-    pub bar_start_x: usize,
-    pub visible_lines: usize,
-    pub visible_cols: usize,
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ContextMenu {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+    pub hovered_idx: Option<usize>,
 }
 
-pub fn calc_thumb(
-    total: usize,
-    visible: usize,
-    offset: usize,
-    track_len: usize,
-) -> Option<(usize, usize)> {
-    if total <= visible || track_len == 0 {
-        return None;
-    }
-    let ratio = visible as f64 / total as f64;
-    let thumb_h = ((track_len as f64 * ratio) as usize).clamp(MIN_THUMB_SIZE, track_len);
-    let max_offset = total - visible;
-    let travel = track_len.saturating_sub(thumb_h);
-    let pos = ((offset as f64 / max_offset as f64) * travel as f64) as usize;
-    Some((pos, thumb_h))
-}
-
-pub fn compute_layout(
+pub fn render_context_menu(
+    frame: &mut [u32],
+    fonts: &mut FontManager,
+    menu: &ContextMenu,
+    sidebar_visible: bool,
+    tab_count: usize,
     screen_w: usize,
-    effective_h: usize,
-    char_w: usize,
-    line_h: usize,
-    total_lines: usize,
-    sidebar_w: usize,
-) -> ViewportLayout {
-    let content_left = sidebar_w;
-    let content_right = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
-    let content_bottom = effective_h.saturating_sub(SCROLLBAR_THICKNESS);
+    screen_h: usize,
+) {
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        menu.x,
+        menu.y,
+        menu.width,
+        menu.height,
+        COLOR_MODAL_BG,
+    );
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        menu.x,
+        menu.y,
+        menu.width,
+        1,
+        COLOR_MODAL_BORDER,
+    );
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        menu.x,
+        menu.y + menu.height - 1,
+        menu.width,
+        1,
+        COLOR_MODAL_BORDER,
+    );
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        menu.x,
+        menu.y,
+        1,
+        menu.height,
+        COLOR_MODAL_BORDER,
+    );
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        menu.x + menu.width - 1,
+        menu.y,
+        1,
+        menu.height,
+        COLOR_MODAL_BORDER,
+    );
 
-    let digits = total_lines.to_string().len().max(3);
-    let gutter_width = GUTTER_PADDING * 2 + digits * char_w;
-    let code_x = content_left + gutter_width + CODE_LEFT_MARGIN;
-    let bar_start_x = content_left + gutter_width + 1;
+    let row_h = menu.height / 2;
+    let sidebar_label = if sidebar_visible {
+        "Close Sidebar"
+    } else {
+        "Open Sidebar"
+    };
+    let close_files_label = if tab_count <= 1 {
+        "Close File"
+    } else {
+        "Close Files"
+    };
+    let has_files = tab_count > 0;
 
-    let code_w = content_right.saturating_sub(code_x);
-    let code_h = content_bottom.saturating_sub(TAB_BAR_HEIGHT + TOP_PADDING);
+    let items = [(sidebar_label, true), (close_files_label, has_files)];
 
-    let visible_cols = if char_w > 0 { code_w / char_w } else { 0 };
-    let visible_lines = if line_h > 0 { code_h / line_h } else { 0 };
-
-    ViewportLayout {
-        content_left,
-        content_right,
-        content_bottom,
-        gutter_width,
-        code_x,
-        bar_start_x,
-        visible_lines,
-        visible_cols,
+    let cap_h = (fonts.baseline_offset * 73) / 100;
+    for (i, (label, enabled)) in items.iter().enumerate() {
+        let item_y = menu.y + i * row_h;
+        if *enabled && menu.hovered_idx == Some(i) {
+            draw_solid_rect(
+                frame,
+                screen_w,
+                screen_h,
+                menu.x + 1,
+                item_y + 1,
+                menu.width.saturating_sub(2),
+                row_h.saturating_sub(1),
+                COLOR_SIDEBAR_ROW_HOVER,
+            );
+        }
+        let ty = item_y as i32 + (row_h as i32 + cap_h as i32) / 2 - fonts.baseline_offset as i32;
+        let text_color = if *enabled {
+            COLOR_TAB_TEXT_ACTIVE
+        } else {
+            COLOR_LINE_NUMBER_MUTED
+        };
+        draw_string(
+            fonts,
+            frame,
+            label,
+            menu.x as i32 + 12,
+            ty,
+            screen_w,
+            screen_h,
+            text_color,
+        );
     }
 }
 
@@ -289,4 +346,98 @@ pub fn compute_modal_layout(
         text_lines,
         buttons,
     })
+}
+
+pub fn render_modal(
+    frame: &mut [u32],
+    fonts: &mut FontManager,
+    modal: &ModalLayout,
+    hovered_modal_btn: Option<usize>,
+    screen_w: usize,
+    screen_h: usize,
+) {
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        modal.x,
+        modal.y,
+        modal.w,
+        modal.h,
+        COLOR_MODAL_BG,
+    );
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        modal.x,
+        modal.y,
+        modal.w,
+        1,
+        COLOR_MODAL_BORDER,
+    );
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        modal.x,
+        modal.y + modal.h - 1,
+        modal.w,
+        1,
+        COLOR_MODAL_BORDER,
+    );
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        modal.x,
+        modal.y,
+        1,
+        modal.h,
+        COLOR_MODAL_BORDER,
+    );
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        modal.x + modal.w - 1,
+        modal.y,
+        1,
+        modal.h,
+        COLOR_MODAL_BORDER,
+    );
+
+    for (text, tx, ty, color) in &modal.text_lines {
+        draw_string(
+            fonts, frame, text, *tx as i32, *ty as i32, screen_w, screen_h, *color,
+        );
+    }
+
+    let cap_h = (fonts.baseline_offset * 73) / 100;
+    for btn in &modal.buttons {
+        let is_hovered = hovered_modal_btn == Some(btn.id);
+        let bg = if is_hovered {
+            COLOR_BTN_HOVER
+        } else if btn.is_danger {
+            COLOR_BTN_DANGER
+        } else {
+            COLOR_BTN_BG
+        };
+
+        draw_solid_rect(frame, screen_w, screen_h, btn.x, btn.y, btn.w, btn.h, bg);
+        let text_w = btn.label.chars().count() * fonts.char_width;
+        let tx = btn.x + (btn.w.saturating_sub(text_w)) / 2;
+        let ty = btn.y as i32 + (btn.h as i32 + cap_h as i32) / 2 - fonts.baseline_offset as i32;
+
+        draw_string(
+            fonts,
+            frame,
+            btn.label,
+            tx as i32,
+            ty,
+            screen_w,
+            screen_h,
+            COLOR_TAB_TEXT_ACTIVE,
+        );
+    }
 }
