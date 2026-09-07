@@ -1314,6 +1314,11 @@ impl InputHandler {
                 tab.selection_end = None;
 
                 match &event.logical_key {
+                    Key::Named(NamedKey::Tab) => {
+                        tab.tab_complete(vis_rows);
+                        tab.ensure_cursor_visible(vis_cols);
+                        return true;
+                    }
                     Key::Named(NamedKey::Enter) => {
                         if tab.execute_command(vis_rows) {
                             should_exit = true;
