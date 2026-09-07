@@ -21,6 +21,7 @@ pub struct TabManager {
     pub hovered_close: Option<usize>,
     pub pending_close: Option<usize>,
     pub closing_app: bool,
+    pub closing_files: bool,
     pub hovered_modal_btn: Option<usize>,
     pub scroll_x: usize,
 }
@@ -34,6 +35,7 @@ impl TabManager {
             hovered_close: None,
             pending_close: None,
             closing_app: false,
+            closing_files: false,
             hovered_modal_btn: None,
             scroll_x: 0,
         }
@@ -140,6 +142,8 @@ impl TabManager {
         }
         if self.tabs[idx].buffer.is_modified {
             self.pending_close = Some(idx);
+            self.closing_app = false;
+            self.closing_files = false;
             self.hovered_tab = None;
             self.hovered_close = None;
         } else {
@@ -181,6 +185,33 @@ impl TabManager {
                 self.active_idx = Some(self.tabs.len().saturating_sub(1));
             }
         }
+        self.pending_close = None;
+        self.hovered_tab = None;
+        self.hovered_close = None;
+    }
+
+    pub fn close_unmodified(&mut self) {
+        self.tabs.retain(|t| t.buffer.is_modified);
+        if self.tabs.is_empty() {
+            self.active_idx = None;
+            self.scroll_x = 0;
+        } else if let Some(cur) = self.active_idx {
+            if cur >= self.tabs.len() {
+                self.active_idx = Some(self.tabs.len().saturating_sub(1));
+            }
+        } else {
+            self.active_idx = Some(0);
+        }
+        self.hovered_tab = None;
+        self.hovered_close = None;
+    }
+
+    pub fn close_all_tabs(&mut self) {
+        self.tabs.clear();
+        self.active_idx = None;
+        self.scroll_x = 0;
+        self.closing_app = false;
+        self.closing_files = false;
         self.pending_close = None;
         self.hovered_tab = None;
         self.hovered_close = None;

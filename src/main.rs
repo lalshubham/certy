@@ -148,6 +148,7 @@ fn trigger_app_close(
 ) {
     if tabs.has_modified() {
         tabs.closing_app = true;
+        tabs.closing_files = false;
         tabs.pending_close = None;
         window.request_redraw();
     } else {
@@ -630,6 +631,128 @@ impl ApplicationHandler<AppEvent> for App {
                         );
                         window.request_redraw();
                     }
+                    ActionEvent::CloseAllFiles => {
+                        self.tabs.close_unmodified();
+                        if self.tabs.has_modified() {
+                            self.tabs.closing_files = true;
+                            self.tabs.closing_app = false;
+                            self.tabs.pending_close = None;
+                        } else {
+                            self.tabs.close_all_tabs();
+                        }
+                        save_session(&self.sidebar, &self.tabs);
+                        let effective_sidebar_w = if self.sidebar.visible {
+                            self.sidebar.width
+                        } else {
+                            0
+                        };
+                        let avail_w = screen_w.saturating_sub(effective_sidebar_w);
+                        self.tabs.clamp_scroll(cw, avail_w);
+                        self.tabs.ensure_active_tab_visible(cw, avail_w);
+                        self.input.handle_cursor_move(
+                            self.input.mouse_x,
+                            self.input.mouse_y,
+                            &mut self.tabs,
+                            &mut self.sidebar,
+                            &mut self.terminal,
+                            &layout,
+                            cw,
+                            lh,
+                            screen_w,
+                            screen_h,
+                        );
+                        update_window_title(
+                            &window,
+                            &self.tabs,
+                            &self.sidebar,
+                            &mut self.current_title,
+                        );
+                        window.request_redraw();
+                    }
+                    ActionEvent::SaveAllFiles => {
+                        for tab in &mut self.tabs.tabs {
+                            if tab.buffer.is_modified {
+                                let _ = tab.buffer.save();
+                            }
+                        }
+                        if let Some(rec_dir) = recovery_dir() {
+                            for tab in &self.tabs.tabs {
+                                if let Some(ref p) = tab.buffer.file_path {
+                                    let _ = fs::remove_file(rec_dir.join(recovery_file_name(p)));
+                                }
+                            }
+                        }
+                        if self.sidebar.root_folder.is_some() {
+                            self.sidebar.refresh_folder();
+                        }
+                        self.tabs.close_all_tabs();
+                        save_session(&self.sidebar, &self.tabs);
+                        let effective_sidebar_w = if self.sidebar.visible {
+                            self.sidebar.width
+                        } else {
+                            0
+                        };
+                        let avail_w = screen_w.saturating_sub(effective_sidebar_w);
+                        self.tabs.clamp_scroll(cw, avail_w);
+                        self.tabs.ensure_active_tab_visible(cw, avail_w);
+                        self.input.handle_cursor_move(
+                            self.input.mouse_x,
+                            self.input.mouse_y,
+                            &mut self.tabs,
+                            &mut self.sidebar,
+                            &mut self.terminal,
+                            &layout,
+                            cw,
+                            lh,
+                            screen_w,
+                            screen_h,
+                        );
+                        update_window_title(
+                            &window,
+                            &self.tabs,
+                            &self.sidebar,
+                            &mut self.current_title,
+                        );
+                        window.request_redraw();
+                    }
+                    ActionEvent::DiscardAllFiles => {
+                        if let Some(rec_dir) = recovery_dir() {
+                            for tab in &self.tabs.tabs {
+                                if let Some(ref p) = tab.buffer.file_path {
+                                    let _ = fs::remove_file(rec_dir.join(recovery_file_name(p)));
+                                }
+                            }
+                        }
+                        self.tabs.close_all_tabs();
+                        save_session(&self.sidebar, &self.tabs);
+                        let effective_sidebar_w = if self.sidebar.visible {
+                            self.sidebar.width
+                        } else {
+                            0
+                        };
+                        let avail_w = screen_w.saturating_sub(effective_sidebar_w);
+                        self.tabs.clamp_scroll(cw, avail_w);
+                        self.tabs.ensure_active_tab_visible(cw, avail_w);
+                        self.input.handle_cursor_move(
+                            self.input.mouse_x,
+                            self.input.mouse_y,
+                            &mut self.tabs,
+                            &mut self.sidebar,
+                            &mut self.terminal,
+                            &layout,
+                            cw,
+                            lh,
+                            screen_w,
+                            screen_h,
+                        );
+                        update_window_title(
+                            &window,
+                            &self.tabs,
+                            &self.sidebar,
+                            &mut self.current_title,
+                        );
+                        window.request_redraw();
+                    }
                     ActionEvent::Menu(item) => match item {
                         MenuItem::Save => {
                             if let Some(tab) = self.tabs.active_tab_mut() {
@@ -889,6 +1012,7 @@ impl ApplicationHandler<AppEvent> for App {
                     ActionEvent::CancelClose => {
                         self.tabs.pending_close = None;
                         self.tabs.closing_app = false;
+                        self.tabs.closing_files = false;
                         self.input.handle_cursor_move(
                             self.input.mouse_x,
                             self.input.mouse_y,

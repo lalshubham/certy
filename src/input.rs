@@ -15,7 +15,7 @@ pub struct ContextMenu {
     pub y: usize,
     pub width: usize,
     pub height: usize,
-    pub hovered: bool,
+    pub hovered_idx: Option<usize>,
 }
 
 #[derive(Default, PartialEq)]
@@ -72,6 +72,9 @@ pub enum ActionEvent {
     None,
     Redraw,
     ToggleSidebar,
+    CloseAllFiles,
+    SaveAllFiles,
+    DiscardAllFiles,
     Menu(MenuItem),
     ToggleTerminal,
     OpenFile(PathBuf),
@@ -146,14 +149,14 @@ impl InputHandler {
         }
 
         if let Some(menu) = self.context_menu {
-            return if menu.hovered {
+            return if menu.hovered_idx.is_some() {
                 CursorIcon::Pointer
             } else {
                 CursorIcon::Default
             };
         }
 
-        if tabs.closing_app || tabs.pending_close.is_some() {
+        if tabs.closing_app || tabs.closing_files || tabs.pending_close.is_some() {
             return if tabs.hovered_modal_btn.is_some() {
                 CursorIcon::Pointer
             } else {
@@ -277,12 +280,22 @@ impl InputHandler {
         }
 
         if let Some(ref mut menu) = self.context_menu {
-            let prev_h = menu.hovered;
-            menu.hovered = mx >= menu.x
-                && mx < menu.x + menu.width
-                && my >= menu.y
-                && my < menu.y + menu.height;
-            return prev_h != menu.hovered;
+            let prev_h = menu.hovered_idx;
+            if mx >= menu.x && mx < menu.x + menu.width && my >= menu.y && my < menu.y + menu.height
+            {
+                let row_h = menu.height / 2;
+                let idx = (my - menu.y) / row_h.max(1);
+                if idx == 0 {
+                    menu.hovered_idx = Some(0);
+                } else if idx == 1 && !tabs.tabs.is_empty() {
+                    menu.hovered_idx = Some(1);
+                } else {
+                    menu.hovered_idx = None;
+                }
+            } else {
+                menu.hovered_idx = None;
+            }
+            return prev_h != menu.hovered_idx;
         }
 
         if sidebar.visible {
@@ -624,8 +637,10 @@ impl InputHandler {
     ) -> ActionEvent {
         if button == MouseButton::Right {
             if state == ElementState::Pressed {
-                let menu_w = (14 * char_w + 24).max(140);
-                let menu_h = 30;
+                let item_count = 2;
+                let row_h = 30;
+                let menu_h = row_h * item_count;
+                let menu_w = (15 * char_w + 24).max(150);
                 let px = (self.mouse_x as usize).min(screen_w.saturating_sub(menu_w));
                 let py = (self.mouse_y as usize).min(screen_h.saturating_sub(menu_h));
                 self.context_menu = Some(ContextMenu {
@@ -633,7 +648,7 @@ impl InputHandler {
                     y: py,
                     width: menu_w,
                     height: menu_h,
-                    hovered: false,
+                    hovered_idx: None,
                 });
                 return ActionEvent::Redraw;
             }
@@ -676,10 +691,15 @@ impl InputHandler {
         if let Some(menu) = self.context_menu.take() {
             if mx >= menu.x && mx < menu.x + menu.width && my >= menu.y && my < menu.y + menu.height
             {
-                return ActionEvent::ToggleSidebar;
-            } else {
-                return ActionEvent::Redraw;
+                let row_h = menu.height / 2;
+                let idx = (my - menu.y) / row_h.max(1);
+                if idx == 0 {
+                    return ActionEvent::ToggleSidebar;
+                } else if idx == 1 && !tabs.tabs.is_empty() {
+                    return ActionEvent::CloseAllFiles;
+                }
             }
+            return ActionEvent::Redraw;
         }
 
         if let Some(modal) = compute_modal_layout(tabs, screen_w, screen_h, char_w, line_h) {
@@ -689,6 +709,12 @@ impl InputHandler {
                         return match btn.id {
                             0 => ActionEvent::SaveAllAndExit,
                             1 => ActionEvent::DiscardAllAndExit,
+                            _ => ActionEvent::CancelClose,
+                        };
+                    } else if tabs.closing_files {
+                        return match btn.id {
+                            0 => ActionEvent::SaveAllFiles,
+                            1 => ActionEvent::DiscardAllFiles,
                             _ => ActionEvent::CancelClose,
                         };
                     } else if let Some(close_idx) = tabs.pending_close {
@@ -1281,11 +1307,12 @@ impl InputHandler {
             }
         }
 
-        if tabs.closing_app || tabs.pending_close.is_some() {
+        if tabs.closing_app || tabs.closing_files || tabs.pending_close.is_some() {
             if event.state == ElementState::Pressed
                 && matches!(event.logical_key, Key::Named(NamedKey::Escape))
             {
                 tabs.closing_app = false;
+                tabs.closing_files = false;
                 tabs.pending_close = None;
                 return true;
             }

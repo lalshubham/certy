@@ -1309,39 +1309,54 @@ impl Renderer {
                 COLOR_MODAL_BORDER,
             );
 
-            if menu.hovered {
-                draw_solid_rect(
-                    &mut frame,
-                    screen_w,
-                    screen_h,
-                    menu.x + 1,
-                    menu.y + 1,
-                    menu.width.saturating_sub(2),
-                    menu.height.saturating_sub(2),
-                    COLOR_SIDEBAR_ROW_HOVER,
-                );
-            }
-
-            let label = if sidebar.visible {
+            let row_h = menu.height / 2;
+            let sidebar_label = if sidebar.visible {
                 "Close Sidebar"
             } else {
                 "Open Sidebar"
             };
+            let close_files_label = if tabs.tabs.len() <= 1 {
+                "Close file"
+            } else {
+                "Close files"
+            };
+            let has_files = !tabs.tabs.is_empty();
+
+            let items = [(sidebar_label, true), (close_files_label, has_files)];
 
             let cap_h = (self.font_manager.baseline_offset * 73) / 100;
-            let ty = menu.y as i32 + (menu.height as i32 + cap_h as i32) / 2
-                - self.font_manager.baseline_offset as i32;
-
-            draw_string(
-                &mut self.font_manager,
-                &mut frame,
-                label,
-                menu.x as i32 + 12,
-                ty,
-                screen_w,
-                screen_h,
-                COLOR_TAB_TEXT_ACTIVE,
-            );
+            for (i, (label, enabled)) in items.iter().enumerate() {
+                let item_y = menu.y + i * row_h;
+                if *enabled && menu.hovered_idx == Some(i) {
+                    draw_solid_rect(
+                        &mut frame,
+                        screen_w,
+                        screen_h,
+                        menu.x + 1,
+                        item_y + 1,
+                        menu.width.saturating_sub(2),
+                        row_h.saturating_sub(1),
+                        COLOR_SIDEBAR_ROW_HOVER,
+                    );
+                }
+                let ty = item_y as i32 + (row_h as i32 + cap_h as i32) / 2
+                    - self.font_manager.baseline_offset as i32;
+                let text_color = if *enabled {
+                    COLOR_TAB_TEXT_ACTIVE
+                } else {
+                    COLOR_LINE_NUMBER_MUTED
+                };
+                draw_string(
+                    &mut self.font_manager,
+                    &mut frame,
+                    label,
+                    menu.x as i32 + 12,
+                    ty,
+                    screen_w,
+                    screen_h,
+                    text_color,
+                );
+            }
         }
 
         frame.present().expect("Failed to present frame");
