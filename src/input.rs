@@ -9,6 +9,15 @@ use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta};
 use winit::keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey};
 use winit::window::CursorIcon;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ContextMenu {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+    pub hovered: bool,
+}
+
 #[derive(Default, PartialEq)]
 pub enum DragState {
     #[default]
@@ -56,11 +65,13 @@ pub struct InputHandler {
     pub modifiers: ModifiersState,
     pub ctrl_down: bool,
     pub shift_down: bool,
+    pub context_menu: Option<ContextMenu>,
 }
 
 pub enum ActionEvent {
     None,
     Redraw,
+    ToggleSidebar,
     Menu(MenuItem),
     ToggleTerminal,
     OpenFile(PathBuf),
@@ -134,6 +145,14 @@ impl InputHandler {
             self.drag = DragState::None;
         }
 
+        if let Some(menu) = self.context_menu {
+            return if menu.hovered {
+                CursorIcon::Pointer
+            } else {
+                CursorIcon::Default
+            };
+        }
+
         if tabs.closing_app || tabs.pending_close.is_some() {
             return if tabs.hovered_modal_btn.is_some() {
                 CursorIcon::Pointer
@@ -157,7 +176,7 @@ impl InputHandler {
 
         let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
 
-        if (mx as i32 - sidebar.width as i32).abs() <= 4 {
+        if sidebar.visible && (mx as i32 - sidebar.width as i32).abs() <= 4 {
             return CursorIcon::ColResize;
         }
 
@@ -181,7 +200,7 @@ impl InputHandler {
             }
         }
 
-        if mx < layout.content_left {
+        if sidebar.visible && mx < layout.content_left {
             return if sidebar.hovered_menu_header
                 || sidebar.hovered_menu_item.is_some()
                 || sidebar.hovered_terminal_header
@@ -257,7 +276,18 @@ impl InputHandler {
             self.drag = DragState::None;
         }
 
-        sidebar.clamp_scroll(screen_h);
+        if let Some(ref mut menu) = self.context_menu {
+            let prev_h = menu.hovered;
+            menu.hovered = mx >= menu.x
+                && mx < menu.x + menu.width
+                && my >= menu.y
+                && my < menu.y + menu.height;
+            return prev_h != menu.hovered;
+        }
+
+        if sidebar.visible {
+            sidebar.clamp_scroll(screen_h);
+        }
 
         if let Some(modal) = compute_modal_layout(tabs, screen_w, screen_h, char_w, line_h) {
             let prev = tabs.hovered_modal_btn;
@@ -309,7 +339,7 @@ impl InputHandler {
             .unwrap_or(false);
         let has_folder = sidebar.root_folder.is_some();
 
-        if mx < sidebar.width {
+        if sidebar.visible && mx < sidebar.width {
             tabs.hovered_tab = None;
             tabs.hovered_close = None;
             if !(has_sidebar_scroll && mx >= bar_x) {
@@ -592,6 +622,24 @@ impl InputHandler {
         screen_w: usize,
         screen_h: usize,
     ) -> ActionEvent {
+        if button == MouseButton::Right {
+            if state == ElementState::Pressed {
+                let menu_w = (14 * char_w + 24).max(140);
+                let menu_h = 30;
+                let px = (self.mouse_x as usize).min(screen_w.saturating_sub(menu_w));
+                let py = (self.mouse_y as usize).min(screen_h.saturating_sub(menu_h));
+                self.context_menu = Some(ContextMenu {
+                    x: px,
+                    y: py,
+                    width: menu_w,
+                    height: menu_h,
+                    hovered: false,
+                });
+                return ActionEvent::Redraw;
+            }
+            return ActionEvent::None;
+        }
+
         if button != MouseButton::Left {
             return ActionEvent::None;
         }
@@ -625,6 +673,15 @@ impl InputHandler {
         self.is_left_down = true;
         let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
 
+        if let Some(menu) = self.context_menu.take() {
+            if mx >= menu.x && mx < menu.x + menu.width && my >= menu.y && my < menu.y + menu.height
+            {
+                return ActionEvent::ToggleSidebar;
+            } else {
+                return ActionEvent::Redraw;
+            }
+        }
+
         if let Some(modal) = compute_modal_layout(tabs, screen_w, screen_h, char_w, line_h) {
             for btn in &modal.buttons {
                 if mx >= btn.x && mx < btn.x + btn.w && my >= btn.y && my < btn.y + btn.h {
@@ -646,7 +703,7 @@ impl InputHandler {
             return ActionEvent::None;
         }
 
-        if (mx as i32 - sidebar.width as i32).abs() <= 4 {
+        if sidebar.visible && (mx as i32 - sidebar.width as i32).abs() <= 4 {
             self.drag = DragState::SidebarResize {
                 start_x: self.mouse_x,
                 start_w: sidebar.width,
@@ -858,7 +915,7 @@ impl InputHandler {
             .unwrap_or(false);
         let has_folder = sidebar.root_folder.is_some();
 
-        if mx < sidebar.width {
+        if sidebar.visible && mx < sidebar.width {
             if has_sidebar_scroll && mx >= bar_x {
                 let max_scroll = total_sidebar_h.saturating_sub(screen_h);
                 if let Some((thumb_y, thumb_h)) =
@@ -1078,7 +1135,7 @@ impl InputHandler {
 
         let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
 
-        if mx < sidebar.width {
+        if sidebar.visible && mx < sidebar.width {
             let total_h = sidebar.total_content_height();
             if total_h > screen_h {
                 let max_scroll = total_h.saturating_sub(screen_h);
@@ -1213,6 +1270,15 @@ impl InputHandler {
                 self.shift_down = false;
             }
             return false;
+        }
+
+        if self.context_menu.is_some() {
+            if event.state == ElementState::Pressed
+                && matches!(event.logical_key, Key::Named(NamedKey::Escape))
+            {
+                self.context_menu = None;
+                return true;
+            }
         }
 
         if tabs.closing_app || tabs.pending_close.is_some() {

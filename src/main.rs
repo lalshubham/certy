@@ -372,7 +372,12 @@ impl ApplicationHandler<AppEvent> for App {
                 self.sidebar.clamp_scroll(screen_h);
                 save_session(&self.sidebar, &self.tabs);
                 if let Some(ref r) = self.renderer {
-                    let avail_w = r.width.saturating_sub(self.sidebar.width);
+                    let effective_sidebar_w = if self.sidebar.visible {
+                        self.sidebar.width
+                    } else {
+                        0
+                    };
+                    let avail_w = r.width.saturating_sub(effective_sidebar_w);
                     self.tabs
                         .ensure_active_tab_visible(r.font_manager.char_width, avail_w);
                 }
@@ -383,7 +388,12 @@ impl ApplicationHandler<AppEvent> for App {
                 self.sidebar.clamp_scroll(screen_h);
                 save_session(&self.sidebar, &self.tabs);
                 if let Some(ref r) = self.renderer {
-                    let avail_w = r.width.saturating_sub(self.sidebar.width);
+                    let effective_sidebar_w = if self.sidebar.visible {
+                        self.sidebar.width
+                    } else {
+                        0
+                    };
+                    let avail_w = r.width.saturating_sub(effective_sidebar_w);
                     self.tabs
                         .ensure_active_tab_visible(r.font_manager.char_width, avail_w);
                 }
@@ -448,19 +458,29 @@ impl ApplicationHandler<AppEvent> for App {
             .active_tab()
             .map(|t| t.buffer.text().len_lines())
             .unwrap_or(0);
+        let sidebar_w = if self.sidebar.visible {
+            self.sidebar.width
+        } else {
+            0
+        };
         let layout = compute_layout(
             screen_w,
             screen_h.saturating_sub(term_h),
             cw,
             lh,
             total_lines,
-            self.sidebar.width,
+            sidebar_w,
         );
 
         match event {
             WindowEvent::RedrawRequested => {
                 if let Some(ref mut renderer) = self.renderer {
-                    renderer.render(&self.tabs, &self.sidebar, &self.terminal);
+                    renderer.render(
+                        &self.tabs,
+                        &self.sidebar,
+                        &self.terminal,
+                        self.input.context_menu.as_ref(),
+                    );
                 }
             }
 
@@ -487,7 +507,12 @@ impl ApplicationHandler<AppEvent> for App {
                     };
                 }
 
-                let avail_w = screen_w.saturating_sub(self.sidebar.width);
+                let effective_sidebar_w = if self.sidebar.visible {
+                    self.sidebar.width
+                } else {
+                    0
+                };
+                let avail_w = screen_w.saturating_sub(effective_sidebar_w);
                 self.tabs.clamp_scroll(cw, avail_w);
                 if let Some(tab) = self.tabs.active_tab_mut() {
                     let cur_term_h = if self.terminal.is_open {
@@ -501,13 +526,13 @@ impl ApplicationHandler<AppEvent> for App {
                         cw,
                         lh,
                         tab.buffer.text().len_lines(),
-                        self.sidebar.width,
+                        effective_sidebar_w,
                     );
                     tab.buffer.fit_view(l.visible_lines, l.visible_cols);
                 }
 
                 let new_btn_w = "New".len() * cw + 20;
-                let strip_min_x = self.sidebar.width + new_btn_w;
+                let strip_min_x = effective_sidebar_w + new_btn_w;
                 let strip_max_x = screen_w;
                 let available_tab_w = strip_max_x.saturating_sub(strip_min_x);
                 self.terminal.clamp_tab_scroll(cw, available_tab_w);
@@ -541,7 +566,11 @@ impl ApplicationHandler<AppEvent> for App {
                     cw,
                     lh,
                     total_lines,
-                    self.sidebar.width,
+                    if self.sidebar.visible {
+                        self.sidebar.width
+                    } else {
+                        0
+                    },
                 );
                 let desired_icon = self.input.desired_cursor_icon(
                     &current_layout,
@@ -569,6 +598,38 @@ impl ApplicationHandler<AppEvent> for App {
                     screen_w,
                     screen_h,
                 ) {
+                    ActionEvent::ToggleSidebar => {
+                        self.sidebar.visible = !self.sidebar.visible;
+                        let effective_sidebar_w = if self.sidebar.visible {
+                            self.sidebar.width
+                        } else {
+                            0
+                        };
+                        let avail_w = screen_w.saturating_sub(effective_sidebar_w);
+                        self.tabs.clamp_scroll(cw, avail_w);
+                        self.tabs.ensure_active_tab_visible(cw, avail_w);
+                        let new_layout = compute_layout(
+                            screen_w,
+                            screen_h.saturating_sub(term_h),
+                            cw,
+                            lh,
+                            total_lines,
+                            effective_sidebar_w,
+                        );
+                        self.input.handle_cursor_move(
+                            self.input.mouse_x,
+                            self.input.mouse_y,
+                            &mut self.tabs,
+                            &mut self.sidebar,
+                            &mut self.terminal,
+                            &new_layout,
+                            cw,
+                            lh,
+                            screen_w,
+                            screen_h,
+                        );
+                        window.request_redraw();
+                    }
                     ActionEvent::Menu(item) => match item {
                         MenuItem::Save => {
                             if let Some(tab) = self.tabs.active_tab_mut() {
@@ -655,7 +716,12 @@ impl ApplicationHandler<AppEvent> for App {
                             self.terminal.reset(cwd);
 
                             save_session(&self.sidebar, &self.tabs);
-                            let avail_w = screen_w.saturating_sub(self.sidebar.width);
+                            let effective_sidebar_w = if self.sidebar.visible {
+                                self.sidebar.width
+                            } else {
+                                0
+                            };
+                            let avail_w = screen_w.saturating_sub(effective_sidebar_w);
                             self.tabs.clamp_scroll(cw, avail_w);
                             self.tabs.ensure_active_tab_visible(cw, avail_w);
                             self.input.handle_cursor_move(
@@ -694,7 +760,7 @@ impl ApplicationHandler<AppEvent> for App {
                             self.terminal.focused = true;
                             if self.terminal.tabs.is_empty() {
                                 let new_btn_w = "New".len() * cw + 20;
-                                let strip_min_x = self.sidebar.width + new_btn_w;
+                                let strip_min_x = layout.content_left + new_btn_w;
                                 let strip_max_x = screen_w;
                                 let available_w = strip_max_x.saturating_sub(strip_min_x);
                                 self.terminal.add_terminal(cw, available_w);
@@ -706,7 +772,12 @@ impl ApplicationHandler<AppEvent> for App {
                     ActionEvent::OpenFile(path) => {
                         self.tabs.open_file(path);
                         save_session(&self.sidebar, &self.tabs);
-                        let avail_w = screen_w.saturating_sub(self.sidebar.width);
+                        let effective_sidebar_w = if self.sidebar.visible {
+                            self.sidebar.width
+                        } else {
+                            0
+                        };
+                        let avail_w = screen_w.saturating_sub(effective_sidebar_w);
                         self.tabs.ensure_active_tab_visible(cw, avail_w);
                         update_window_title(
                             &window,
@@ -725,7 +796,12 @@ impl ApplicationHandler<AppEvent> for App {
                         }
                         self.tabs.close_tab(idx);
                         save_session(&self.sidebar, &self.tabs);
-                        let avail_w = screen_w.saturating_sub(self.sidebar.width);
+                        let effective_sidebar_w = if self.sidebar.visible {
+                            self.sidebar.width
+                        } else {
+                            0
+                        };
+                        let avail_w = screen_w.saturating_sub(effective_sidebar_w);
                         self.tabs.clamp_scroll(cw, avail_w);
                         self.tabs.ensure_active_tab_visible(cw, avail_w);
                         self.input.handle_cursor_move(
@@ -758,7 +834,12 @@ impl ApplicationHandler<AppEvent> for App {
                         }
                         self.tabs.close_tab(idx);
                         save_session(&self.sidebar, &self.tabs);
-                        let avail_w = screen_w.saturating_sub(self.sidebar.width);
+                        let effective_sidebar_w = if self.sidebar.visible {
+                            self.sidebar.width
+                        } else {
+                            0
+                        };
+                        let avail_w = screen_w.saturating_sub(effective_sidebar_w);
                         self.tabs.clamp_scroll(cw, avail_w);
                         self.tabs.ensure_active_tab_visible(cw, avail_w);
                         self.input.handle_cursor_move(
@@ -847,7 +928,11 @@ impl ApplicationHandler<AppEvent> for App {
                     cw,
                     lh,
                     total_lines,
-                    self.sidebar.width,
+                    if self.sidebar.visible {
+                        self.sidebar.width
+                    } else {
+                        0
+                    },
                 );
                 let desired_icon = self.input.desired_cursor_icon(
                     &current_layout,

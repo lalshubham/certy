@@ -24,6 +24,7 @@ pub struct FileNode {
 }
 
 pub struct Sidebar {
+    pub visible: bool,
     pub width: usize,
     pub menu_expanded: bool,
     pub root_folder: Option<PathBuf>,
@@ -40,6 +41,7 @@ pub struct Sidebar {
 impl Sidebar {
     pub fn new() -> Self {
         Self {
+            visible: true,
             width: SIDEBAR_INITIAL_WIDTH,
             menu_expanded: false,
             root_folder: None,
