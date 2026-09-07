@@ -677,6 +677,16 @@ impl Terminal {
         }
     }
 
+    pub fn reset(&mut self, cwd: PathBuf) {
+        self.close_all();
+        self.is_open = false;
+        self.focused = false;
+        self.default_cwd = cwd.clone();
+        self.tabs = vec![TerminalTab::new(detect_shell_name(), cwd)];
+        self.active_idx = 0;
+        self.tab_scroll_x = 0;
+    }
+
     pub fn active_tab(&self) -> Option<&TerminalTab> {
         self.tabs.get(self.active_idx)
     }

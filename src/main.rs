@@ -88,7 +88,7 @@ fn recovery_file_name(path: &Path) -> String {
     format!("{hash:016x}.bak")
 }
 
-fn save_session(sidebar: &Sidebar, tabs: &TabManager, terminal: &Terminal) {
+fn save_session(sidebar: &Sidebar, tabs: &TabManager) {
     if let Some(path) = session_path() {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
@@ -109,9 +109,6 @@ fn save_session(sidebar: &Sidebar, tabs: &TabManager, terminal: &Terminal) {
         }
         if let Some(active) = tabs.active_idx {
             content.push_str(&format!("active:{}\n", active));
-        }
-        if terminal.is_open {
-            content.push_str(&format!("terminal:{}\n", terminal.height));
         }
         for tab in &tabs.tabs {
             if let Some(ref p) = tab.buffer.file_path {
@@ -155,7 +152,7 @@ fn trigger_app_close(
         window.request_redraw();
     } else {
         terminal.close_all();
-        save_session(sidebar, tabs, terminal);
+        save_session(sidebar, tabs);
         event_loop.exit();
     }
 }
@@ -226,11 +223,6 @@ impl App {
                         expanded_dirs.insert(PathBuf::from(e));
                     } else if let Some(a) = line.strip_prefix("active:") {
                         saved_active = a.parse().ok();
-                    } else if let Some(t) = line.strip_prefix("terminal:") {
-                        if let Ok(h) = t.parse::<usize>() {
-                            self.terminal.is_open = true;
-                            self.terminal.height = h;
-                        }
                     } else if let Some(f) = line.strip_prefix("file:") {
                         if let Some(tab) = current_tab.take() {
                             saved_tabs.push(tab);
@@ -363,6 +355,7 @@ impl ApplicationHandler<AppEvent> for App {
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) {
+        let screen_h = self.renderer.as_ref().map(|r| r.height).unwrap_or(768);
         match event {
             AppEvent::SaveNewFile(path) => {
                 let _ = fs::File::create(&path);
@@ -375,7 +368,9 @@ impl ApplicationHandler<AppEvent> for App {
                 if let Some(tab) = self.tabs.active_tab_mut() {
                     tab.buffer.is_modified = true;
                 }
-                save_session(&self.sidebar, &self.tabs, &self.terminal);
+                self.sidebar.menu_expanded = false;
+                self.sidebar.clamp_scroll(screen_h);
+                save_session(&self.sidebar, &self.tabs);
                 if let Some(ref r) = self.renderer {
                     let avail_w = r.width.saturating_sub(self.sidebar.width);
                     self.tabs
@@ -384,7 +379,9 @@ impl ApplicationHandler<AppEvent> for App {
             }
             AppEvent::OpenFile(path) => {
                 self.tabs.open_file(path);
-                save_session(&self.sidebar, &self.tabs, &self.terminal);
+                self.sidebar.menu_expanded = false;
+                self.sidebar.clamp_scroll(screen_h);
+                save_session(&self.sidebar, &self.tabs);
                 if let Some(ref r) = self.renderer {
                     let avail_w = r.width.saturating_sub(self.sidebar.width);
                     self.tabs
@@ -392,12 +389,11 @@ impl ApplicationHandler<AppEvent> for App {
                 }
             }
             AppEvent::OpenFolder(path) => {
-                self.terminal.default_cwd = path.clone();
-                for tab in &mut self.terminal.tabs {
-                    tab.cwd = path.clone();
-                }
+                self.terminal.reset(path.clone());
                 self.sidebar.open_folder(path);
-                save_session(&self.sidebar, &self.tabs, &self.terminal);
+                self.sidebar.menu_expanded = false;
+                self.sidebar.clamp_scroll(screen_h);
+                save_session(&self.sidebar, &self.tabs);
             }
             AppEvent::CreateFolder(path) => {
                 let _ = fs::create_dir_all(&path);
@@ -410,7 +406,9 @@ impl ApplicationHandler<AppEvent> for App {
                 } else {
                     self.sidebar.open_folder(path);
                 }
-                save_session(&self.sidebar, &self.tabs, &self.terminal);
+                self.sidebar.menu_expanded = false;
+                self.sidebar.clamp_scroll(screen_h);
+                save_session(&self.sidebar, &self.tabs);
             }
         }
         if let Some(window) = &self.window {
@@ -583,7 +581,7 @@ impl ApplicationHandler<AppEvent> for App {
                                 if self.sidebar.root_folder.is_some() {
                                     self.sidebar.refresh_folder();
                                 }
-                                save_session(&self.sidebar, &self.tabs, &self.terminal);
+                                save_session(&self.sidebar, &self.tabs);
                                 update_window_title(
                                     &window,
                                     &self.tabs,
@@ -594,8 +592,6 @@ impl ApplicationHandler<AppEvent> for App {
                             }
                         }
                         MenuItem::NewFile => {
-                            self.sidebar.menu_expanded = false;
-                            self.sidebar.clamp_scroll(screen_h);
                             let proxy = self.event_proxy.clone();
                             let root_opt = self.sidebar.root_folder.clone();
                             std::thread::spawn(move || {
@@ -609,8 +605,6 @@ impl ApplicationHandler<AppEvent> for App {
                             });
                         }
                         MenuItem::NewFolder => {
-                            self.sidebar.menu_expanded = false;
-                            self.sidebar.clamp_scroll(screen_h);
                             let proxy = self.event_proxy.clone();
                             let root_opt = self.sidebar.root_folder.clone();
                             std::thread::spawn(move || {
@@ -624,8 +618,6 @@ impl ApplicationHandler<AppEvent> for App {
                             });
                         }
                         MenuItem::OpenFile => {
-                            self.sidebar.menu_expanded = false;
-                            self.sidebar.clamp_scroll(screen_h);
                             let proxy = self.event_proxy.clone();
                             std::thread::spawn(move || {
                                 if let Some(path) = rfd::FileDialog::new().pick_file() {
@@ -634,8 +626,6 @@ impl ApplicationHandler<AppEvent> for App {
                             });
                         }
                         MenuItem::OpenFolder => {
-                            self.sidebar.menu_expanded = false;
-                            self.sidebar.clamp_scroll(screen_h);
                             let proxy = self.event_proxy.clone();
                             std::thread::spawn(move || {
                                 if let Some(dir) = rfd::FileDialog::new().pick_folder() {
@@ -659,7 +649,12 @@ impl ApplicationHandler<AppEvent> for App {
                                 self.tabs.close_folder_tabs(&root);
                             }
                             self.sidebar.close_folder();
-                            save_session(&self.sidebar, &self.tabs, &self.terminal);
+
+                            let cwd =
+                                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                            self.terminal.reset(cwd);
+
+                            save_session(&self.sidebar, &self.tabs);
                             let avail_w = screen_w.saturating_sub(self.sidebar.width);
                             self.tabs.clamp_scroll(cw, avail_w);
                             self.tabs.ensure_active_tab_visible(cw, avail_w);
@@ -705,12 +700,12 @@ impl ApplicationHandler<AppEvent> for App {
                                 self.terminal.add_terminal(cw, available_w);
                             }
                         }
-                        save_session(&self.sidebar, &self.tabs, &self.terminal);
+                        save_session(&self.sidebar, &self.tabs);
                         window.request_redraw();
                     }
                     ActionEvent::OpenFile(path) => {
                         self.tabs.open_file(path);
-                        save_session(&self.sidebar, &self.tabs, &self.terminal);
+                        save_session(&self.sidebar, &self.tabs);
                         let avail_w = screen_w.saturating_sub(self.sidebar.width);
                         self.tabs.ensure_active_tab_visible(cw, avail_w);
                         update_window_title(
@@ -729,7 +724,7 @@ impl ApplicationHandler<AppEvent> for App {
                             self.sidebar.refresh_folder();
                         }
                         self.tabs.close_tab(idx);
-                        save_session(&self.sidebar, &self.tabs, &self.terminal);
+                        save_session(&self.sidebar, &self.tabs);
                         let avail_w = screen_w.saturating_sub(self.sidebar.width);
                         self.tabs.clamp_scroll(cw, avail_w);
                         self.tabs.ensure_active_tab_visible(cw, avail_w);
@@ -762,7 +757,7 @@ impl ApplicationHandler<AppEvent> for App {
                             }
                         }
                         self.tabs.close_tab(idx);
-                        save_session(&self.sidebar, &self.tabs, &self.terminal);
+                        save_session(&self.sidebar, &self.tabs);
                         let avail_w = screen_w.saturating_sub(self.sidebar.width);
                         self.tabs.clamp_scroll(cw, avail_w);
                         self.tabs.ensure_active_tab_visible(cw, avail_w);
@@ -796,7 +791,7 @@ impl ApplicationHandler<AppEvent> for App {
                             self.sidebar.refresh_folder();
                         }
                         self.terminal.close_all();
-                        save_session(&self.sidebar, &self.tabs, &self.terminal);
+                        save_session(&self.sidebar, &self.tabs);
                         event_loop.exit();
                     }
                     ActionEvent::DiscardAllAndExit => {
@@ -807,7 +802,7 @@ impl ApplicationHandler<AppEvent> for App {
                             let _ = fs::remove_dir_all(&rec_dir);
                         }
                         self.terminal.close_all();
-                        save_session(&self.sidebar, &self.tabs, &self.terminal);
+                        save_session(&self.sidebar, &self.tabs);
                         event_loop.exit();
                     }
                     ActionEvent::CancelClose => {
@@ -834,7 +829,7 @@ impl ApplicationHandler<AppEvent> for App {
                         window.request_redraw();
                     }
                     ActionEvent::Redraw => {
-                        save_session(&self.sidebar, &self.tabs, &self.terminal);
+                        save_session(&self.sidebar, &self.tabs);
                         update_window_title(
                             &window,
                             &self.tabs,
@@ -924,7 +919,7 @@ impl ApplicationHandler<AppEvent> for App {
                     screen_w,
                     &mut self.clipboard,
                 ) {
-                    save_session(&self.sidebar, &self.tabs, &self.terminal);
+                    save_session(&self.sidebar, &self.tabs);
                     update_window_title(
                         &window,
                         &self.tabs,

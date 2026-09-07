@@ -1202,6 +1202,7 @@ impl Renderer {
                 );
             }
 
+            let cap_h = (self.font_manager.baseline_offset * 73) / 100;
             for btn in modal.buttons {
                 let is_hovered = tabs.hovered_modal_btn == Some(btn.id);
                 let bg = if is_hovered {
@@ -1215,13 +1216,17 @@ impl Renderer {
                 draw_solid_rect(
                     &mut frame, screen_w, screen_h, btn.x, btn.y, btn.w, btn.h, bg,
                 );
-                let tx = btn.x + (btn.w.saturating_sub(btn.label.len() * cw)) / 2;
+                let text_w = btn.label.chars().count() * cw;
+                let tx = btn.x + (btn.w.saturating_sub(text_w)) / 2;
+                let ty = btn.y as i32 + (btn.h as i32 + cap_h as i32) / 2
+                    - self.font_manager.baseline_offset as i32;
+
                 draw_string(
                     &mut self.font_manager,
                     &mut frame,
                     btn.label,
                     tx as i32,
-                    btn.y as i32 + 6,
+                    ty,
                     screen_w,
                     screen_h,
                     COLOR_TAB_TEXT_ACTIVE,
