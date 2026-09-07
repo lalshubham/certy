@@ -52,6 +52,9 @@ pub fn save_session(sidebar: &Sidebar, tabs: &TabManager) {
         }
 
         let mut content = String::new();
+        content.push_str(&format!("sidebar_width:{}\n", sidebar.width));
+        content.push_str(&format!("sidebar_visible:{}\n", sidebar.visible));
+
         if let Some(ref root) = sidebar.root_folder {
             content.push_str(&format!("folder:{}\n", root.display()));
         }
@@ -105,6 +108,8 @@ pub struct LoadedSession {
     pub expanded: HashSet<PathBuf>,
     pub active_idx: Option<usize>,
     pub tabs: Vec<LoadedTab>,
+    pub sidebar_width: Option<usize>,
+    pub sidebar_visible: Option<bool>,
 }
 
 pub fn load_session() -> Option<LoadedSession> {
@@ -116,12 +121,18 @@ pub fn load_session() -> Option<LoadedSession> {
         expanded: HashSet::new(),
         active_idx: None,
         tabs: Vec::new(),
+        sidebar_width: None,
+        sidebar_visible: None,
     };
 
     let mut current_tab: Option<LoadedTab> = None;
 
     for line in content.lines() {
-        if let Some(f) = line.strip_prefix("folder:") {
+        if let Some(w) = line.strip_prefix("sidebar_width:") {
+            session.sidebar_width = w.parse().ok();
+        } else if let Some(v) = line.strip_prefix("sidebar_visible:") {
+            session.sidebar_visible = v.parse().ok();
+        } else if let Some(f) = line.strip_prefix("folder:") {
             session.folder = Some(PathBuf::from(f));
         } else if let Some(e) = line.strip_prefix("expanded:") {
             session.expanded.insert(PathBuf::from(e));

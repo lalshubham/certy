@@ -2,7 +2,7 @@ Certy is a lightweight and low-memory coding IDE written in Rust.<br />
 **Memory usage:** ~10 MB<br />
 **Binary size:** ~7 MB
 
-> Certy is currently under active development. Current builds are targeted and tested specifically for **Fedora Linux**.
+> Current builds are targeted and tested specifically for **Fedora Linux**.
 
 ## Features
 

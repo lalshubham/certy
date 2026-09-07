@@ -169,7 +169,10 @@ impl TabManager {
         self.hovered_close = None;
     }
 
-    pub fn close_folder_tabs(&mut self, root: &Path) {
+    pub fn close_folder_tabs(&mut self, root: &Path) -> bool {
+        let prev_active_path = self.active_tab().and_then(|t| t.buffer.file_path.clone());
+        let initial_len = self.tabs.len();
+
         self.tabs.retain(|tab| {
             if let Some(ref p) = tab.buffer.file_path {
                 !p.starts_with(root)
@@ -177,17 +180,69 @@ impl TabManager {
                 true
             }
         });
+
         if self.tabs.is_empty() {
             self.active_idx = None;
             self.scroll_x = 0;
+        } else if let Some(ref path) = prev_active_path {
+            if let Some(pos) = self
+                .tabs
+                .iter()
+                .position(|t| t.buffer.file_path.as_ref() == Some(path))
+            {
+                self.active_idx = Some(pos);
+            } else if let Some(cur) = self.active_idx {
+                self.active_idx = Some(cur.min(self.tabs.len().saturating_sub(1)));
+            }
         } else if let Some(cur) = self.active_idx {
             if cur >= self.tabs.len() {
                 self.active_idx = Some(self.tabs.len().saturating_sub(1));
             }
         }
+
         self.pending_close = None;
         self.hovered_tab = None;
         self.hovered_close = None;
+
+        initial_len != self.tabs.len()
+    }
+
+    pub fn close_missing_files(&mut self) -> bool {
+        let prev_active_path = self.active_tab().and_then(|t| t.buffer.file_path.clone());
+        let initial_len = self.tabs.len();
+
+        self.tabs.retain(|tab| {
+            if let Some(ref p) = tab.buffer.file_path {
+                p.exists()
+            } else {
+                true
+            }
+        });
+
+        if self.tabs.is_empty() {
+            self.active_idx = None;
+            self.scroll_x = 0;
+        } else if let Some(ref path) = prev_active_path {
+            if let Some(pos) = self
+                .tabs
+                .iter()
+                .position(|t| t.buffer.file_path.as_ref() == Some(path))
+            {
+                self.active_idx = Some(pos);
+            } else if let Some(cur) = self.active_idx {
+                self.active_idx = Some(cur.min(self.tabs.len().saturating_sub(1)));
+            }
+        } else if let Some(cur) = self.active_idx {
+            if cur >= self.tabs.len() {
+                self.active_idx = Some(self.tabs.len().saturating_sub(1));
+            }
+        }
+
+        self.pending_close = None;
+        self.hovered_tab = None;
+        self.hovered_close = None;
+
+        initial_len != self.tabs.len()
     }
 
     pub fn close_unmodified(&mut self) {

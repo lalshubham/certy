@@ -105,6 +105,13 @@ impl App {
             None => return,
         };
 
+        if let Some(w) = session.sidebar_width {
+            self.sidebar.width = w.max(SIDEBAR_MIN_WIDTH);
+        }
+        if let Some(v) = session.sidebar_visible {
+            self.sidebar.visible = v;
+        }
+
         let rec_dir = recovery_dir();
 
         if let Some(p) = session.folder {
@@ -150,6 +157,73 @@ impl App {
             }
         }
     }
+
+    fn sync_filesystem(&mut self) -> bool {
+        let mut changed = false;
+
+        if let Some(ref root) = self.sidebar.root_folder.clone() {
+            if !root.exists() {
+                if let Some(rec_dir) = recovery_dir() {
+                    for tab in &self.tabs.tabs {
+                        if let Some(ref p) = tab.buffer.file_path {
+                            if p.starts_with(root) {
+                                let _ = fs::remove_file(rec_dir.join(recovery_file_name(p)));
+                            }
+                        }
+                    }
+                }
+                self.tabs.close_folder_tabs(root);
+                self.sidebar.close_folder();
+
+                let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                if !self.terminal.default_cwd.exists() {
+                    self.terminal.default_cwd = fallback_cwd.clone();
+                }
+                for tab in &mut self.terminal.tabs {
+                    if !tab.cwd.exists() {
+                        tab.cwd = fallback_cwd.clone();
+                    }
+                }
+                changed = true;
+            } else {
+                self.sidebar.refresh_folder();
+                changed = true;
+            }
+        }
+
+        if let Some(rec_dir) = recovery_dir() {
+            for tab in &self.tabs.tabs {
+                if let Some(ref p) = tab.buffer.file_path {
+                    if !p.exists() {
+                        let _ = fs::remove_file(rec_dir.join(recovery_file_name(p)));
+                    }
+                }
+            }
+        }
+
+        if self.tabs.close_missing_files() {
+            changed = true;
+        }
+
+        if changed {
+            save_session(&self.sidebar, &self.tabs);
+            if let Some(ref r) = self.renderer {
+                let effective_sidebar_w = if self.sidebar.visible {
+                    self.sidebar.width
+                } else {
+                    0
+                };
+                let avail_w = r.width.saturating_sub(effective_sidebar_w);
+                self.tabs.clamp_scroll(r.font_manager.char_width, avail_w);
+                self.sidebar.clamp_scroll(r.height);
+            }
+            if let Some(w) = &self.window {
+                update_window_title(w, &self.tabs, &self.sidebar, &mut self.current_title);
+            }
+        }
+
+        changed
+    }
 }
 
 impl ApplicationHandler<AppEvent> for App {
@@ -185,11 +259,7 @@ impl ApplicationHandler<AppEvent> for App {
 
         if self.terminal.needs_fs_refresh {
             self.terminal.needs_fs_refresh = false;
-            if self.sidebar.root_folder.is_some() {
-                self.sidebar.refresh_folder();
-                let screen_h = self.renderer.as_ref().map(|r| r.height).unwrap_or(768);
-                self.sidebar.clamp_scroll(screen_h);
-            }
+            self.sync_filesystem();
             if let Some(w) = &self.window {
                 w.request_redraw();
             }
@@ -452,6 +522,7 @@ impl ApplicationHandler<AppEvent> for App {
                 ) {
                     ActionEvent::ToggleSidebar => {
                         self.sidebar.visible = !self.sidebar.visible;
+                        save_session(&self.sidebar, &self.tabs);
                         let effective_sidebar_w = if self.sidebar.visible {
                             self.sidebar.width
                         } else {
@@ -926,10 +997,16 @@ impl ApplicationHandler<AppEvent> for App {
                 if !is_focused {
                     self.input.drag = input::DragState::None;
                     self.input.is_left_down = false;
-                } else if self.sidebar.root_folder.is_some() {
-                    self.sidebar.refresh_folder();
-                    self.sidebar.clamp_scroll(screen_h);
-                    window.request_redraw();
+                } else {
+                    if self.sync_filesystem() {
+                        if let Some(w) = &self.window {
+                            w.request_redraw();
+                        }
+                    } else if self.sidebar.root_folder.is_some() {
+                        let screen_h = self.renderer.as_ref().map(|r| r.height).unwrap_or(768);
+                        self.sidebar.clamp_scroll(screen_h);
+                        window.request_redraw();
+                    }
                 }
             }
 
