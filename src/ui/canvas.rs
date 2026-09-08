@@ -168,3 +168,40 @@ pub fn draw_string_ellipsis(
         );
     }
 }
+
+#[inline(always)]
+pub fn draw_close_icon_clipped(
+    buf: &mut [u32],
+    screen_w: usize,
+    screen_h: usize,
+    x: i32,
+    y: i32,
+    size: usize,
+    clip_min_x: usize,
+    clip_max_x: usize,
+    color: u32,
+) {
+    if size == 0 {
+        return;
+    }
+    let s = size as i32;
+    let max_x = clip_max_x.min(screen_w);
+    for i in 0..size {
+        let py = y + i as i32;
+        if py < 0 || py as usize >= screen_h {
+            continue;
+        }
+        let row_offset = py as usize * screen_w;
+        let k = (i as i32).min(s - 1 - i as i32);
+        let p1 = x + k;
+        let p2 = x + k + 1;
+        let p3 = x + s - 1 - k;
+        let p4 = x + s - 2 - k;
+
+        for px in [p1, p2, p3, p4] {
+            if px >= clip_min_x as i32 && (px as usize) < max_x {
+                buf[row_offset + px as usize] = color;
+            }
+        }
+    }
+}

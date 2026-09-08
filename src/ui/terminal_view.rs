@@ -1,4 +1,7 @@
-use super::canvas::{draw_solid_rect, draw_solid_rect_clipped, draw_string, draw_string_clipped};
+use super::canvas::{
+    draw_close_icon_clipped, draw_solid_rect, draw_solid_rect_clipped, draw_string,
+    draw_string_clipped,
+};
 use super::font::FontManager;
 use crate::config::*;
 use crate::terminal::Terminal;
@@ -141,36 +144,39 @@ pub fn render_terminal(
             COLOR_TAB_TEXT_INACTIVE
         };
 
+        let text_clip_max = strip_max_x.min((tab_x1 - 26).max(0) as usize);
         draw_string_clipped(
             fonts,
             frame,
             &tab.name,
-            tab_x0 + 10,
+            tab_x0 + 14,
             tab_text_offset_y as i32,
             strip_min_x,
-            strip_max_x.min((tab_x1 - 18).max(0) as usize),
+            text_clip_max,
             screen_w,
             screen_h,
             text_color,
         );
 
-        let close_x = tab_x1 - 18;
         let close_color = if is_close_hovered {
             COLOR_TAB_CLOSE_HOVER
         } else {
             text_color
         };
 
-        draw_string_clipped(
-            fonts,
+        let icon_size = 8;
+        let close_x = tab_x1 - 22;
+        let close_y = tabbar_y + (TERMINAL_TAB_BAR_HEIGHT.saturating_sub(icon_size)) / 2;
+
+        draw_close_icon_clipped(
             frame,
-            "x",
-            close_x,
-            tab_text_offset_y as i32,
-            strip_min_x,
-            strip_max_x,
             screen_w,
             screen_h,
+            close_x,
+            close_y as i32,
+            icon_size,
+            strip_min_x,
+            strip_max_x,
             close_color,
         );
     }

@@ -101,7 +101,7 @@ impl TerminalTab {
 
     #[inline]
     pub fn width(&self, char_w: usize) -> usize {
-        self.name.chars().count() * char_w + 34
+        self.name.chars().count() * char_w + 50
     }
 
     pub fn resize_pty(&mut self, rows: usize, cols: usize) {

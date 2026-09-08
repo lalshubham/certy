@@ -1,4 +1,4 @@
-use crate::config::FONT_SIZE;
+use crate::config::{FONT_SIZE, LINE_SPACING};
 use fontdue::{Font, FontSettings, Metrics};
 use std::collections::HashMap;
 
@@ -24,8 +24,8 @@ impl FontManager {
         let metrics = font
             .horizontal_line_metrics(FONT_SIZE)
             .expect("Missing horizontal metrics");
-        let line_height = metrics.new_line_size.ceil() as usize;
-        let baseline_offset = metrics.ascent.ceil() as usize;
+        let line_height = metrics.new_line_size.ceil() as usize + LINE_SPACING;
+        let baseline_offset = metrics.ascent.ceil() as usize + (LINE_SPACING / 2);
         let mut cache = HashMap::with_capacity(128);
         for byte in 32u8..=126u8 {
             let ch = byte as char;

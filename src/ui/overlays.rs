@@ -212,32 +212,16 @@ pub fn compute_modal_layout(
     let btn_discard_label = if is_multi { "Discard All" } else { "Discard" };
     let btn_cancel_label = "Cancel";
 
-    let title_line = if is_multi {
-        "Save changes to modified files before closing?".to_string()
-    } else if let Some(idx) = tabs.pending_close {
-        if let Some(tab) = tabs.tabs.get(idx) {
-            format!("Save changes to \"{}\" before closing?", tab.title)
-        } else {
-            "Save changes before closing?".to_string()
-        }
-    } else if let Some(tab) = tabs.tabs.iter().find(|t| t.buffer.is_modified) {
-        format!("Save changes to \"{}\" before closing?", tab.title)
-    } else {
-        "Save changes before closing?".to_string()
-    };
-
-    let sub_line = "Your changes will be lost if you don't save them.".to_string();
+    let title_line = "Save changes before closing?".to_string();
 
     let pad_x = 20;
     let pad_y = 16;
     let modal_w = 440.min(screen_w.saturating_sub(16)).max(120);
     let modal_x = (screen_w.saturating_sub(modal_w)) / 2;
-
     let content_w = modal_w.saturating_sub(pad_x * 2).max(char_w);
     let max_chars = if char_w > 0 { content_w / char_w } else { 20 };
 
     let title_lines = wrap_text(&title_line, max_chars);
-    let sub_lines = wrap_text(&sub_line, max_chars);
 
     let btn_h = 28;
     let spacing = 8;
@@ -245,15 +229,15 @@ pub fn compute_modal_layout(
     let w_discard = (btn_discard_label.chars().count() * char_w + 16).max(60);
     let w_cancel = (btn_cancel_label.chars().count() * char_w + 16).max(60);
     let total_horiz_btn_w = w_save + w_discard + w_cancel + spacing * 2;
-
     let can_fit_single_row = total_horiz_btn_w <= content_w;
+
     let btn_area_h = if can_fit_single_row {
         btn_h
     } else {
         btn_h * 3 + spacing * 2
     };
 
-    let text_lines_h = title_lines.len() * (line_h + 2) + 6 + sub_lines.len() * (line_h + 2);
+    let text_lines_h = title_lines.len() * (line_h + 2);
     let raw_modal_h = pad_y + text_lines_h + 16 + btn_area_h + pad_y;
     let modal_h = raw_modal_h.min(screen_h.saturating_sub(8)).max(60);
     let modal_y = (screen_h.saturating_sub(modal_h)) / 2;
@@ -263,14 +247,6 @@ pub fn compute_modal_layout(
     for line in title_lines {
         if cur_y + line_h <= modal_y + modal_h.saturating_sub(btn_area_h + pad_y) {
             text_lines.push((line, modal_x + pad_x, cur_y, COLOR_TAB_TEXT_ACTIVE));
-        }
-        cur_y += line_h + 2;
-    }
-
-    cur_y += 6;
-    for line in sub_lines {
-        if cur_y + line_h <= modal_y + modal_h.saturating_sub(btn_area_h + pad_y) {
-            text_lines.push((line, modal_x + pad_x, cur_y, COLOR_LINE_NUMBER_ACTIVE));
         }
         cur_y += line_h + 2;
     }

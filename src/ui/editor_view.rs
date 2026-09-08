@@ -1,4 +1,6 @@
-use super::canvas::{draw_solid_rect, draw_solid_rect_clipped, draw_string_clipped};
+use super::canvas::{
+    draw_close_icon_clipped, draw_solid_rect, draw_solid_rect_clipped, draw_string_clipped,
+};
 use super::font::FontManager;
 use crate::config::*;
 use crate::editor::TabManager;
@@ -101,37 +103,38 @@ pub fn render_editor_tabs(
 
         let dirty = if tab.buffer.is_modified { "* " } else { "" };
         let title_text = format!("{dirty}{}", tab.title);
-
+        let text_clip_max = screen_w.min((tab_x1 - 26).max(0) as usize);
         draw_string_clipped(
             fonts,
             frame,
             &title_text,
-            tab_x0 + 10,
+            tab_x0 + 14,
             tab_text_offset_y as i32,
             tabbar_x,
-            screen_w,
+            text_clip_max,
             screen_w,
             screen_h,
             text_color,
         );
 
-        let close_x = tab_x1 - 18;
+        let icon_size = 8;
+        let close_x = tab_x1 - 22;
+        let close_y = (TAB_BAR_HEIGHT.saturating_sub(icon_size)) / 2;
         let close_color = if is_close_hovered {
             COLOR_TAB_CLOSE_HOVER
         } else {
             text_color
         };
 
-        draw_string_clipped(
-            fonts,
+        draw_close_icon_clipped(
             frame,
-            "x",
-            close_x,
-            tab_text_offset_y as i32,
-            tabbar_x,
-            screen_w,
             screen_w,
             screen_h,
+            close_x,
+            close_y as i32,
+            icon_size,
+            tabbar_x,
+            screen_w,
             close_color,
         );
     }

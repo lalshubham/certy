@@ -10,7 +10,7 @@ impl Tab {
     #[inline]
     pub fn width(&self, char_w: usize) -> usize {
         let dirty_len = if self.buffer.is_modified { 2 } else { 0 };
-        (self.title.len() + dirty_len) * char_w + 38
+        (self.title.len() + dirty_len) * char_w + 50
     }
 }
 

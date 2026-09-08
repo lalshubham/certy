@@ -50,7 +50,7 @@ fn update_terminal_tab_hover(
 
                 if mx_i32 >= tab_x0 && mx_i32 < tab_x1 && mx >= strip_min_x && mx < strip_max_x {
                     terminal.hovered_tab = Some(idx);
-                    if mx_i32 >= tab_x1 - 20 && mx_i32 <= tab_x1 - 2 {
+                    if mx_i32 >= tab_x1 - 27 && mx_i32 <= tab_x1 - 7 {
                         terminal.hovered_close_tab = Some(idx);
                     }
                     break;
@@ -179,7 +179,7 @@ impl InputHandler {
                 let tab_x1 = tx + tw;
                 if mx_i32 >= tab_x0 && mx_i32 < tab_x1 {
                     tabs.hovered_tab = Some(idx);
-                    if mx_i32 >= tab_x1 - 20 && mx_i32 <= tab_x1 - 4 {
+                    if mx_i32 >= tab_x1 - 27 && mx_i32 <= tab_x1 - 7 {
                         tabs.hovered_close = Some(idx);
                     }
                     break;
@@ -680,7 +680,7 @@ impl InputHandler {
                         cur_x += tw;
 
                         if mx_i32 >= tab_x0 && mx_i32 < tab_x1 {
-                            if mx_i32 >= tab_x1 - 20 && mx_i32 <= tab_x1 - 2 {
+                            if mx_i32 >= tab_x1 - 27 && mx_i32 <= tab_x1 - 7 {
                                 terminal.remove_terminal(idx, char_w, available_w);
                                 update_terminal_tab_hover(
                                     terminal,
