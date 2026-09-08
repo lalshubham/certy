@@ -468,7 +468,7 @@ impl ApplicationHandler<AppEvent> for App {
                     tab.buffer.fit_view(l.visible_lines, l.visible_cols);
                 }
 
-                let new_btn_w = "New".len() * cw + 20;
+                let new_btn_w = "NEW".len() * cw + 20;
                 let strip_min_x = effective_sidebar_w + new_btn_w;
                 let strip_max_x = screen_w;
                 let available_tab_w = strip_max_x.saturating_sub(strip_min_x);
@@ -838,7 +838,7 @@ impl ApplicationHandler<AppEvent> for App {
                                 80
                             };
                             if self.terminal.tabs.is_empty() {
-                                let new_btn_w = "New".len() * cw + 20;
+                                let new_btn_w = "NEW".len() * cw + 20;
                                 let strip_min_x = layout.content_left + new_btn_w;
                                 let strip_max_x = screen_w;
                                 let available_w = strip_max_x.saturating_sub(strip_min_x);

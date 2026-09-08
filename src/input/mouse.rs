@@ -32,7 +32,7 @@ fn update_terminal_tab_hover(
     let tabbar_h = TERMINAL_TAB_BAR_HEIGHT;
 
     if my >= tabbar_y && my < tabbar_y + tabbar_h {
-        let new_btn_w = "New".len() * char_w + 20;
+        let new_btn_w = "NEW".len() * char_w + 20;
         let strip_min_x = content_left + new_btn_w;
         let strip_max_x = screen_w;
 
@@ -468,15 +468,16 @@ impl InputHandler {
                     let active_buf = &mut active_tab.buffer;
                     let total = active_buf.text().len_lines();
                     let usable_h = layout.content_bottom.saturating_sub(TAB_BAR_HEIGHT);
+                    let virtual_total = total + layout.visible_lines.saturating_sub(1);
                     if let Some((_, th)) = calc_thumb(
-                        total,
+                        virtual_total,
                         layout.visible_lines,
                         active_buf.scroll_line,
                         usable_h,
                     ) {
                         let travel = usable_h.saturating_sub(th) as f64;
                         if travel > 0.0 {
-                            let max_s = (total - layout.visible_lines) as f64;
+                            let max_s = virtual_total.saturating_sub(layout.visible_lines) as f64;
                             let target =
                                 (start_line as f64 + ((self.mouse_y - start_y) / travel) * max_s)
                                     .clamp(0.0, max_s) as usize;
@@ -644,7 +645,7 @@ impl InputHandler {
             }
 
             if my >= tabbar_y && my < tabbar_y + tabbar_h {
-                let new_btn_w = "New".len() * char_w + 20;
+                let new_btn_w = "NEW".len() * char_w + 20;
                 let strip_min_x = layout.content_left + new_btn_w;
                 let strip_max_x = screen_w;
                 let available_w = strip_max_x.saturating_sub(strip_min_x);
@@ -888,8 +889,9 @@ impl InputHandler {
                 && my < layout.content_bottom
             {
                 terminal.focused = false;
+                let virtual_total = total + layout.visible_lines.saturating_sub(1);
                 if let Some((ty, th)) = calc_thumb(
-                    total,
+                    virtual_total,
                     layout.visible_lines,
                     active_buf.scroll_line,
                     usable_h,
@@ -903,8 +905,8 @@ impl InputHandler {
                     } else {
                         let ratio =
                             ((my - TAB_BAR_HEIGHT) as f64 / usable_h as f64).clamp(0.0, 1.0);
-                        active_buf.scroll_line =
-                            (ratio * (total - layout.visible_lines) as f64) as usize;
+                        let max_s = virtual_total.saturating_sub(layout.visible_lines);
+                        active_buf.scroll_line = (ratio * max_s as f64) as usize;
                         self.drag = DragState::Vertical {
                             start_y: self.mouse_y,
                             start_line: active_buf.scroll_line,
@@ -1025,7 +1027,7 @@ impl InputHandler {
             let tabbar_h = TERMINAL_TAB_BAR_HEIGHT;
 
             if my >= tabbar_y && my < tabbar_y + tabbar_h {
-                let new_btn_w = "New".len() * char_w + 20;
+                let new_btn_w = "NEW".len() * char_w + 20;
                 let strip_min_x = layout.content_left + new_btn_w;
                 let strip_max_x = screen_w;
 
@@ -1079,15 +1081,10 @@ impl InputHandler {
 
         if let Some(active_tab) = tabs.active_tab_mut() {
             let active_buf = &mut active_tab.buffer;
-            let max_l = active_buf
-                .text()
-                .len_lines()
-                .saturating_sub(layout.visible_lines);
+            let max_l = active_buf.text().len_lines().saturating_sub(1);
             let max_c = active_buf.max_line_len.saturating_sub(layout.visible_cols);
-
             let next_l = (active_buf.scroll_line as i32 - lines).clamp(0, max_l as i32) as usize;
             let next_c = (active_buf.scroll_col as i32 - cols).clamp(0, max_c as i32) as usize;
-
             if active_buf.scroll_line != next_l || active_buf.scroll_col != next_c {
                 active_buf.scroll_line = next_l;
                 active_buf.scroll_col = next_c;

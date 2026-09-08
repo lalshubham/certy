@@ -284,8 +284,9 @@ pub fn render_editor_buffer(
     }
 
     let usable_track_h = layout.content_bottom.saturating_sub(TAB_BAR_HEIGHT);
+    let virtual_total_lines = total_lines + layout.visible_lines.saturating_sub(1);
     let vert_thumb = calc_thumb(
-        total_lines,
+        virtual_total_lines,
         layout.visible_lines,
         buffer.scroll_line,
         usable_track_h,

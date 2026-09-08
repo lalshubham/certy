@@ -59,7 +59,7 @@ pub fn render_terminal(
 
     let tab_text_offset_y = tabbar_y + (TERMINAL_TAB_BAR_HEIGHT.saturating_sub(lh)) / 2;
 
-    let new_btn_label = "New";
+    let new_btn_label = "NEW";
     let new_btn_w = new_btn_label.len() * cw + 20;
     let new_text_color = if terminal.hovered_new {
         COLOR_TAB_TEXT_ACTIVE

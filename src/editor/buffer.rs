@@ -298,7 +298,7 @@ impl EditorBuffer {
             } else if line >= self.scroll_line + vis_lines {
                 self.scroll_line = line - vis_lines + 1;
             }
-            let max_scroll_line = self.text.len_lines().saturating_sub(vis_lines);
+            let max_scroll_line = self.text.len_lines().saturating_sub(1);
             if self.scroll_line > max_scroll_line {
                 self.scroll_line = max_scroll_line;
             }
