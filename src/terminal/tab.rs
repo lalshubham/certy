@@ -51,6 +51,10 @@ impl TerminalTab {
         let shell = detect_shell();
         let mut cmd = CommandBuilder::new(&shell);
         cmd.cwd(&cwd);
+
+        #[cfg(not(target_os = "windows"))]
+        cmd.arg("-l");
+
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
 
@@ -58,6 +62,7 @@ impl TerminalTab {
             .slave
             .spawn_command(cmd)
             .expect("Failed to spawn shell");
+
         let mut reader = pair
             .master
             .try_clone_reader()
@@ -68,7 +73,6 @@ impl TerminalTab {
             .expect("Failed to take pty writer");
 
         let (tx, rx) = channel();
-
         thread::spawn(move || {
             let mut buf = [0u8; 4096];
             while let Ok(n) = reader.read(&mut buf) {
@@ -137,7 +141,6 @@ impl TerminalTab {
             self.screen.process_bytes(&chunk);
             updated = true;
         }
-
         if updated {
             let total = self.screen.total_lines();
             self.scroll_line = total.saturating_sub(vis_rows);
@@ -183,7 +186,10 @@ impl TerminalTab {
                     chars.len()
                 };
                 if start <= end {
-                    let s: String = chars[start..end].iter().collect();
+                    let mut s: String = chars[start..end].iter().collect();
+                    if line_idx != e_line {
+                        s = s.trim_end().to_string();
+                    }
                     result.push(s);
                 } else {
                     result.push(String::new());

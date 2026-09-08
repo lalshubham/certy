@@ -1,9 +1,9 @@
-use crate::config::COLOR_TEXT_DEFAULT;
-
 pub const ANSI_COLORS: [u32; 16] = [
-    0xFF1E1E1E, 0xFFE06C75, 0xFF98C379, 0xFFE5C07B, 0xFF61AFEF, 0xFFC678DD, 0xFF56B6C2, 0xFFABB2BF,
-    0xFF5C6370, 0xFFE06C75, 0xFF98C379, 0xFFE5C07B, 0xFF61AFEF, 0xFFC678DD, 0xFF56B6C2, 0xFFFFFFFF,
+    0xFF6E7681, 0xFFFF4D4D, 0xFF2EE59D, 0xFFFFDD00, 0xFF4C9EFF, 0xFFFF55D4, 0xFF00E5FF, 0xFFE6EDF3,
+    0xFF8B949E, 0xFFFF7B72, 0xFF56F39A, 0xFFFFF066, 0xFF79C0FF, 0xFFFFA8EC, 0xFF56FFFF, 0xFFFFFFFF,
 ];
+
+pub const COLOR_TERMINAL_FG: u32 = ANSI_COLORS[15];
 
 pub fn ansi_256_to_u32(idx: u8) -> u32 {
     if (idx as usize) < 16 {
@@ -30,7 +30,7 @@ impl Default for TerminalCell {
     fn default() -> Self {
         Self {
             ch: ' ',
-            fg: COLOR_TEXT_DEFAULT,
+            fg: COLOR_TERMINAL_FG,
         }
     }
 }
@@ -83,7 +83,7 @@ impl TerminalScreen {
             cursor_row: 0,
             cursor_col: 0,
             cursor_visible: true,
-            current_fg: COLOR_TEXT_DEFAULT,
+            current_fg: COLOR_TERMINAL_FG,
             wrap_next: false,
             scroll_top: 0,
             scroll_bottom: r.saturating_sub(1),
@@ -123,8 +123,8 @@ impl TerminalScreen {
     }
 
     pub fn total_lines(&self) -> usize {
-        if self.is_alt || self.scrollback.is_empty() {
-            0
+        if self.is_alt {
+            self.rows
         } else {
             self.scrollback.len() + self.rows
         }
@@ -302,7 +302,7 @@ impl TerminalScreen {
                         self.cursor_col = 0;
                         self.scroll_top = 0;
                         self.scroll_bottom = self.rows.saturating_sub(1);
-                        self.current_fg = COLOR_TEXT_DEFAULT;
+                        self.current_fg = COLOR_TERMINAL_FG;
                         let c = self.cols;
                         for r in self.current_rows_mut() {
                             *r = TerminalRow::new(c);
@@ -600,20 +600,24 @@ impl TerminalScreen {
 
     fn handle_sgr(&mut self, parts: &[usize]) {
         if parts.is_empty() {
-            self.current_fg = COLOR_TEXT_DEFAULT;
+            self.current_fg = COLOR_TERMINAL_FG;
             return;
         }
 
+        let is_bold = parts.contains(&1);
         let mut idx = 0;
+
         while idx < parts.len() {
             match parts[idx] {
-                0 => self.current_fg = COLOR_TEXT_DEFAULT,
-                1 => {}
+                0 => self.current_fg = COLOR_TERMINAL_FG,
                 30..=37 => {
-                    let c = parts[idx] - 30;
+                    let mut c = parts[idx] - 30;
+                    if is_bold {
+                        c += 8;
+                    }
                     self.current_fg = ANSI_COLORS[c];
                 }
-                39 => self.current_fg = COLOR_TEXT_DEFAULT,
+                39 => self.current_fg = COLOR_TERMINAL_FG,
                 90..=97 => {
                     let c = parts[idx] - 90 + 8;
                     self.current_fg = ANSI_COLORS[c];
