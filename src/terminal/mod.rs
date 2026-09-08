@@ -1,39 +1,9 @@
-pub mod completion;
-pub mod process;
+pub mod screen;
 pub mod tab;
 
-use std::path::{Path, PathBuf};
-use tab::TerminalTab;
+pub use tab::TerminalTab;
 
-pub fn detect_shell_name() -> String {
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(shell) = std::env::var("SHELL") {
-            if let Some(name) = Path::new(&shell).file_name().and_then(|s| s.to_str()) {
-                let lower = name.to_lowercase();
-                let stripped = lower.strip_suffix(".exe").unwrap_or(&lower);
-                if !stripped.is_empty() {
-                    return stripped.to_string();
-                }
-            }
-        }
-        if std::env::var_os("PSModulePath").is_some() {
-            return "powershell".to_string();
-        }
-        "cmd".to_string()
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        if let Ok(shell) = std::env::var("SHELL") {
-            if let Some(name) = Path::new(&shell).file_name().and_then(|s| s.to_str()) {
-                if !name.is_empty() {
-                    return name.to_string();
-                }
-            }
-        }
-        "bash".to_string()
-    }
-}
+use std::path::PathBuf;
 
 pub struct Terminal {
     pub is_open: bool,
@@ -52,12 +22,11 @@ pub struct Terminal {
 impl Terminal {
     pub fn new() -> Self {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let initial_tab = TerminalTab::new(detect_shell_name(), cwd.clone());
         Self {
             is_open: false,
             height: 220,
             focused: false,
-            tabs: vec![initial_tab],
+            tabs: Vec::new(),
             active_idx: 0,
             default_cwd: cwd,
             tab_scroll_x: 0,
@@ -72,8 +41,8 @@ impl Terminal {
         self.close_all();
         self.is_open = false;
         self.focused = false;
-        self.default_cwd = cwd.clone();
-        self.tabs = vec![TerminalTab::new(detect_shell_name(), cwd)];
+        self.default_cwd = cwd;
+        self.tabs.clear();
         self.active_idx = 0;
         self.tab_scroll_x = 0;
     }
@@ -123,8 +92,8 @@ impl Terminal {
         self.clamp_tab_scroll(char_w, available_w);
     }
 
-    pub fn add_terminal(&mut self, char_w: usize, available_w: usize) {
-        let tab = TerminalTab::new(detect_shell_name(), self.default_cwd.clone());
+    pub fn add_terminal(&mut self, char_w: usize, available_w: usize, rows: usize, cols: usize) {
+        let tab = TerminalTab::new("terminal".to_string(), self.default_cwd.clone(), rows, cols);
         self.tabs.push(tab);
         self.active_idx = self.tabs.len() - 1;
         self.focused = true;
@@ -160,7 +129,7 @@ impl Terminal {
     }
 
     pub fn has_running_process(&self) -> bool {
-        self.tabs.iter().any(|t| t.is_running)
+        self.tabs.iter().any(|t| t.is_running())
     }
 
     pub fn poll_output(&mut self, vis_rows: usize) -> bool {
@@ -169,12 +138,14 @@ impl Terminal {
             if tab.poll_output(vis_rows) {
                 updated = true;
             }
-            if tab.command_finished {
-                tab.command_finished = false;
-                self.needs_fs_refresh = true;
-            }
         }
         updated
+    }
+
+    pub fn resize_active_pty(&mut self, rows: usize, cols: usize) {
+        if let Some(tab) = self.active_tab_mut() {
+            tab.resize_pty(rows, cols);
+        }
     }
 
     pub fn vis_rows(&self, line_h: usize) -> usize {
@@ -184,7 +155,6 @@ impl Terminal {
         let body_h = self
             .height
             .saturating_sub(crate::config::TERMINAL_TAB_BAR_HEIGHT);
-        let track_h = body_h.saturating_sub(crate::config::SCROLLBAR_THICKNESS);
-        track_h.saturating_sub(4) / line_h
+        body_h.saturating_sub(4) / line_h
     }
 }

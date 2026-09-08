@@ -1,84 +1,97 @@
-use super::process::TermMsg;
+use super::screen::{TerminalRow, TerminalScreen};
+use portable_pty::{CommandBuilder, MasterPty, PtySize};
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::Child;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, Mutex};
+use std::thread;
 
-#[derive(Clone)]
-pub struct TerminalLine {
-    pub prompt: Option<String>,
-    pub content: String,
-}
-
-impl TerminalLine {
-    pub fn full_text(&self) -> String {
-        if let Some(ref p) = self.prompt {
-            format!("{p}{}", self.content)
-        } else {
-            self.content.clone()
+pub fn detect_shell() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(shell) = std::env::var("SHELL") {
+            return shell;
         }
-    }
-}
-
-pub fn get_username() -> String {
-    std::env::var("USER")
-        .or_else(|_| std::env::var("USERNAME"))
-        .unwrap_or_else(|_| "user".to_string())
-}
-
-pub fn get_hostname() -> String {
-    if let Ok(h) = std::fs::read_to_string("/etc/hostname") {
-        let trimmed = h.trim();
-        if !trimmed.is_empty() {
-            return trimmed.to_string();
+        if std::env::var_os("PSModulePath").is_some() {
+            return "powershell.exe".to_string();
         }
+        "cmd.exe".to_string()
     }
-    std::env::var("HOSTNAME").unwrap_or_else(|_| "localhost".to_string())
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
+    }
 }
 
 pub struct TerminalTab {
     pub name: String,
-    pub lines: Vec<TerminalLine>,
-    pub partial_line: String,
-    pub current_input: String,
-    pub cursor_col: usize,
     pub cwd: PathBuf,
-    pub history: Vec<String>,
-    pub history_idx: Option<usize>,
+    pub screen: TerminalScreen,
     pub scroll_line: usize,
-    pub scroll_col: usize,
-    pub max_line_len: usize,
-    pub is_running: bool,
-    pub command_finished: bool,
     pub selection_anchor: Option<(usize, usize)>,
     pub selection_end: Option<(usize, usize)>,
-    pub(crate) output_rx: Receiver<TermMsg>,
-    pub(crate) output_tx: Sender<TermMsg>,
-    pub(crate) running_child: Arc<Mutex<Option<Child>>>,
+    master: Box<dyn MasterPty + Send>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
+    output_rx: Receiver<Vec<u8>>,
 }
 
 impl TerminalTab {
-    pub fn new(name: String, cwd: PathBuf) -> Self {
-        let (output_tx, output_rx) = channel();
+    pub fn new(name: String, cwd: PathBuf, rows: usize, cols: usize) -> Self {
+        let pty_system = portable_pty::native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: rows.max(1) as u16,
+                cols: cols.max(1) as u16,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("Failed to create pty");
+
+        let shell = detect_shell();
+        let mut cmd = CommandBuilder::new(&shell);
+        cmd.cwd(&cwd);
+        cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
+
+        let child = pair
+            .slave
+            .spawn_command(cmd)
+            .expect("Failed to spawn shell");
+        let mut reader = pair
+            .master
+            .try_clone_reader()
+            .expect("Failed to clone pty reader");
+        let writer = pair
+            .master
+            .take_writer()
+            .expect("Failed to take pty writer");
+
+        let (tx, rx) = channel();
+
+        thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            while let Ok(n) = reader.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                if tx.send(buf[..n].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+
         Self {
             name,
-            lines: Vec::new(),
-            partial_line: String::new(),
-            current_input: String::new(),
-            cursor_col: 0,
             cwd,
-            history: Vec::new(),
-            history_idx: None,
+            screen: TerminalScreen::new(rows, cols),
             scroll_line: 0,
-            scroll_col: 0,
-            max_line_len: 0,
-            is_running: false,
-            command_finished: false,
             selection_anchor: None,
             selection_end: None,
-            output_rx,
-            output_tx,
-            running_child: Arc::new(Mutex::new(None)),
+            master: pair.master,
+            writer: Arc::new(Mutex::new(writer)),
+            child: Arc::new(Mutex::new(child)),
+            output_rx: rx,
         }
     }
 
@@ -87,98 +100,57 @@ impl TerminalTab {
         self.name.chars().count() * char_w + 34
     }
 
-    pub fn prompt(&self) -> String {
-        let user = get_username();
-        let host = get_hostname();
-        let home = std::env::var_os("HOME").map(PathBuf::from);
-        let path_str = if let Some(ref h) = home {
-            if let Ok(rel) = self.cwd.strip_prefix(h) {
-                if rel.as_os_str().is_empty() {
-                    "~".to_string()
-                } else {
-                    format!("~/{}", rel.display())
-                }
-            } else {
-                self.cwd.display().to_string()
-            }
+    pub fn resize_pty(&mut self, rows: usize, cols: usize) {
+        self.screen.set_size(rows, cols);
+        let _ = self.master.resize(PtySize {
+            rows: rows.max(1) as u16,
+            cols: cols.max(1) as u16,
+            pixel_width: 0,
+            pixel_height: 0,
+        });
+    }
+
+    pub fn write_bytes(&self, bytes: &[u8]) {
+        if let Ok(mut w) = self.writer.lock() {
+            let _ = w.write_all(bytes);
+            let _ = w.flush();
+        }
+    }
+
+    pub fn kill_process(&mut self) {
+        if let Ok(mut c) = self.child.lock() {
+            let _ = c.kill();
+        }
+    }
+
+    pub fn is_running(&self) -> bool {
+        if let Ok(mut c) = self.child.lock() {
+            matches!(c.try_wait(), Ok(None))
         } else {
-            self.cwd.display().to_string()
-        };
-        format!("{user}@{host}:{path_str}$ ")
+            false
+        }
+    }
+
+    pub fn poll_output(&mut self, vis_rows: usize) -> bool {
+        let mut updated = false;
+        while let Ok(chunk) = self.output_rx.try_recv() {
+            self.screen.process_bytes(&chunk);
+            updated = true;
+        }
+
+        if updated {
+            let total = self.screen.total_lines();
+            self.scroll_line = total.saturating_sub(vis_rows);
+        }
+        updated
     }
 
     pub fn total_lines(&self) -> usize {
-        self.lines.len() + 1
+        self.screen.total_lines()
     }
 
-    pub fn max_content_cols(&self) -> usize {
-        let mut max_c = self.max_line_len;
-        if self.is_running {
-            let running_len = self.partial_line.chars().count();
-            if running_len > max_c {
-                max_c = running_len;
-            }
-        } else {
-            let active_len = self.prompt().chars().count() + self.current_input.chars().count();
-            if active_len > max_c {
-                max_c = active_len;
-            }
-        }
-        max_c
-    }
-
-    pub fn ensure_cursor_visible(&mut self, vis_cols: usize) {
-        if vis_cols == 0 {
-            return;
-        }
-        let prompt_len = self.prompt().chars().count();
-        let active_col = prompt_len + self.cursor_col;
-        let active_line_len = prompt_len + self.current_input.chars().count();
-
-        if active_col < vis_cols {
-            self.scroll_col = 0;
-        } else {
-            if active_col >= self.scroll_col + vis_cols {
-                self.scroll_col = active_col.saturating_sub(vis_cols) + 1;
-            } else if active_col < self.scroll_col {
-                self.scroll_col = active_col;
-            }
-
-            if self.cursor_col == self.current_input.chars().count() {
-                let ideal_scroll = active_line_len.saturating_sub(vis_cols) + 1;
-                if self.scroll_col > ideal_scroll {
-                    self.scroll_col = ideal_scroll;
-                }
-            }
-        }
-
-        let max_scroll = self.max_content_cols().saturating_sub(vis_cols);
-        if self.scroll_col > max_scroll {
-            self.scroll_col = max_scroll;
-        }
-    }
-
-    pub fn auto_scroll_to_bottom(&mut self, vis_rows: usize) {
-        let total = self.total_lines();
-        if total > vis_rows {
-            self.scroll_line = total - vis_rows;
-        } else {
-            self.scroll_line = 0;
-        }
-    }
-
-    pub fn get_line_text(&self, idx: usize) -> Option<String> {
-        if idx < self.lines.len() {
-            Some(self.lines[idx].full_text())
-        } else if idx == self.lines.len() {
-            if self.is_running {
-                Some(self.partial_line.clone())
-            } else {
-                Some(format!("{}{}", self.prompt(), self.current_input))
-            }
-        } else {
-            None
-        }
+    pub fn get_row(&self, idx: usize) -> Option<&TerminalRow> {
+        self.screen.get_display_row(idx)
     }
 
     pub fn selection_range(&self) -> Option<((usize, usize), (usize, usize))> {
@@ -195,90 +167,29 @@ impl TerminalTab {
     }
 
     pub fn selected_text(&self) -> Option<String> {
-        let ((start_line, start_col), (end_line, end_col)) = self.selection_range()?;
+        let ((s_line, s_col), (e_line, e_col)) = self.selection_range()?;
         let mut result = Vec::new();
-        for line_idx in start_line..=end_line {
-            if let Some(text) = self.get_line_text(line_idx) {
-                let chars: Vec<char> = text.chars().collect();
-                let s_col = if line_idx == start_line {
-                    start_col.min(chars.len())
+        for line_idx in s_line..=e_line {
+            if let Some(row) = self.get_row(line_idx) {
+                let chars: Vec<char> = row.cells.iter().map(|c| c.ch).collect();
+                let start = if line_idx == s_line {
+                    s_col.min(chars.len())
                 } else {
                     0
                 };
-                let e_col = if line_idx == end_line {
-                    end_col.min(chars.len())
+                let end = if line_idx == e_line {
+                    e_col.min(chars.len())
                 } else {
                     chars.len()
                 };
-                if s_col <= e_col {
-                    let slice: String = chars[s_col..e_col].iter().collect();
-                    result.push(slice);
+                if start <= end {
+                    let s: String = chars[start..end].iter().collect();
+                    result.push(s);
                 } else {
                     result.push(String::new());
                 }
             }
         }
         Some(result.join("\n"))
-    }
-
-    pub fn history_up(&mut self) {
-        if !self.history.is_empty() {
-            let next = match self.history_idx {
-                Some(i) if i > 0 => i - 1,
-                Some(_) => 0,
-                None => self.history.len().saturating_sub(1),
-            };
-            self.history_idx = Some(next);
-            self.current_input = self.history[next].clone();
-            self.cursor_col = self.current_input.chars().count();
-        }
-    }
-
-    pub fn history_down(&mut self) {
-        if let Some(i) = self.history_idx {
-            if i + 1 < self.history.len() {
-                self.history_idx = Some(i + 1);
-                self.current_input = self.history[i + 1].clone();
-            } else {
-                self.history_idx = None;
-                self.current_input.clear();
-            }
-            self.cursor_col = self.current_input.chars().count();
-        }
-    }
-
-    pub fn insert_char(&mut self, ch: char) {
-        let mut chars: Vec<char> = self.current_input.chars().collect();
-        chars.insert(self.cursor_col, ch);
-        self.current_input = chars.into_iter().collect();
-        self.cursor_col += 1;
-    }
-
-    pub fn delete_backwards(&mut self) {
-        if self.cursor_col > 0 {
-            let mut chars: Vec<char> = self.current_input.chars().collect();
-            chars.remove(self.cursor_col - 1);
-            self.current_input = chars.into_iter().collect();
-            self.cursor_col -= 1;
-        }
-    }
-
-    pub fn delete_forward(&mut self) {
-        let mut chars: Vec<char> = self.current_input.chars().collect();
-        if self.cursor_col < chars.len() {
-            chars.remove(self.cursor_col);
-            self.current_input = chars.into_iter().collect();
-        }
-    }
-
-    pub fn move_left(&mut self) {
-        self.cursor_col = self.cursor_col.saturating_sub(1);
-    }
-
-    pub fn move_right(&mut self) {
-        let len = self.current_input.chars().count();
-        if self.cursor_col < len {
-            self.cursor_col += 1;
-        }
     }
 }

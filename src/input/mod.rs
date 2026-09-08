@@ -36,10 +36,6 @@ pub enum DragState {
         start_y: f64,
         start_line: usize,
     },
-    TerminalHorizontal {
-        start_x: f64,
-        start_col: usize,
-    },
     TerminalSelecting,
 }
 

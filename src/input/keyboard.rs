@@ -13,9 +13,9 @@ impl InputHandler {
         tabs: &mut TabManager,
         terminal: &mut Terminal,
         layout: &ViewportLayout,
-        char_w: usize,
-        line_h: usize,
-        screen_w: usize,
+        _char_w: usize,
+        _line_h: usize,
+        _screen_w: usize,
         clipboard: &mut Option<Clipboard>,
     ) -> bool {
         if event.state == ElementState::Released {
@@ -83,15 +83,6 @@ impl InputHandler {
         let is_shift = self.modifiers.shift_key() || self.shift_down;
 
         if terminal.is_open && terminal.focused {
-            let vis_rows = terminal.vis_rows(line_h);
-            let text_left = layout.content_left + 14;
-            let text_right = screen_w.saturating_sub(crate::config::SCROLLBAR_THICKNESS);
-            let vis_cols = if char_w > 0 {
-                text_right.saturating_sub(text_left) / char_w
-            } else {
-                0
-            };
-
             let is_c = matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyC))
                 || match &event.logical_key {
                     Key::Character(c) => c.eq_ignore_ascii_case("c") || c == "\u{3}",
@@ -103,8 +94,6 @@ impl InputHandler {
                     _ => false,
                 };
 
-            let mut should_exit = false;
-
             if let Some(tab) = terminal.active_tab_mut() {
                 if is_ctrl && is_c {
                     if let Some(text) = tab.selected_text() {
@@ -113,117 +102,73 @@ impl InputHandler {
                         }
                         return true;
                     }
-                    tab.interrupt(vis_rows);
+                    tab.write_bytes(b"\x03");
                     return true;
                 }
 
                 if is_ctrl && is_v {
                     if let Some(cb) = clipboard.as_mut() {
                         if let Ok(text) = cb.get_text() {
-                            for ch in text.chars() {
-                                if ch != '\n' && ch != '\r' {
-                                    tab.insert_char(ch);
-                                }
-                            }
-                            tab.selection_anchor = None;
-                            tab.selection_end = None;
-                            tab.ensure_cursor_visible(vis_cols);
+                            tab.write_bytes(text.as_bytes());
                             return true;
                         }
                     }
                     return false;
                 }
 
-                if is_ctrl && matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyL)) {
-                    tab.lines.clear();
-                    tab.partial_line.clear();
-                    tab.scroll_line = 0;
-                    tab.scroll_col = 0;
-                    tab.selection_anchor = None;
-                    tab.selection_end = None;
+                if is_ctrl {
+                    let ctrl_byte = match event.physical_key {
+                        PhysicalKey::Code(KeyCode::KeyA) => Some(b"\x01"),
+                        PhysicalKey::Code(KeyCode::KeyB) => Some(b"\x02"),
+                        PhysicalKey::Code(KeyCode::KeyD) => Some(b"\x04"),
+                        PhysicalKey::Code(KeyCode::KeyE) => Some(b"\x05"),
+                        PhysicalKey::Code(KeyCode::KeyK) => Some(b"\x0b"),
+                        PhysicalKey::Code(KeyCode::KeyL) => Some(b"\x0c"),
+                        PhysicalKey::Code(KeyCode::KeyN) => Some(b"\x0e"),
+                        PhysicalKey::Code(KeyCode::KeyP) => Some(b"\x10"),
+                        PhysicalKey::Code(KeyCode::KeyR) => Some(b"\x12"),
+                        PhysicalKey::Code(KeyCode::KeyT) => Some(b"\x14"),
+                        PhysicalKey::Code(KeyCode::KeyU) => Some(b"\x15"),
+                        PhysicalKey::Code(KeyCode::KeyW) => Some(b"\x17"),
+                        PhysicalKey::Code(KeyCode::KeyX) => Some(b"\x18"),
+                        PhysicalKey::Code(KeyCode::KeyY) => Some(b"\x19"),
+                        PhysicalKey::Code(KeyCode::KeyZ) => Some(b"\x1a"),
+                        _ => None,
+                    };
+                    if let Some(b) = ctrl_byte {
+                        tab.write_bytes(b);
+                        return true;
+                    }
+                }
+
+                let key_bytes: Option<&[u8]> = match &event.logical_key {
+                    Key::Named(NamedKey::Enter) => Some(b"\r"),
+                    Key::Named(NamedKey::Backspace) => Some(b"\x7f"),
+                    Key::Named(NamedKey::Tab) => Some(b"\t"),
+                    Key::Named(NamedKey::Escape) => Some(b"\x1b"),
+                    Key::Named(NamedKey::ArrowUp) => Some(b"\x1b[A"),
+                    Key::Named(NamedKey::ArrowDown) => Some(b"\x1b[B"),
+                    Key::Named(NamedKey::ArrowRight) => Some(b"\x1b[C"),
+                    Key::Named(NamedKey::ArrowLeft) => Some(b"\x1b[D"),
+                    Key::Named(NamedKey::Home) => Some(b"\x1b[H"),
+                    Key::Named(NamedKey::End) => Some(b"\x1b[F"),
+                    Key::Named(NamedKey::PageUp) => Some(b"\x1b[5~"),
+                    Key::Named(NamedKey::PageDown) => Some(b"\x1b[6~"),
+                    Key::Named(NamedKey::Delete) => Some(b"\x1b[3~"),
+                    _ => None,
+                };
+
+                if let Some(b) = key_bytes {
+                    tab.write_bytes(b);
                     return true;
                 }
 
-                tab.selection_anchor = None;
-                tab.selection_end = None;
-
-                match &event.logical_key {
-                    Key::Named(NamedKey::Tab) => {
-                        tab.tab_complete(vis_rows);
-                        tab.ensure_cursor_visible(vis_cols);
+                if !is_ctrl {
+                    if let Some(txt) = &event.text {
+                        tab.write_bytes(txt.as_bytes());
                         return true;
-                    }
-                    Key::Named(NamedKey::Enter) => {
-                        if tab.execute_command(vis_rows) {
-                            should_exit = true;
-                        } else {
-                            return true;
-                        }
-                    }
-                    Key::Named(NamedKey::Backspace) => {
-                        tab.delete_backwards();
-                        tab.ensure_cursor_visible(vis_cols);
-                        return true;
-                    }
-                    Key::Named(NamedKey::Delete) => {
-                        tab.delete_forward();
-                        tab.ensure_cursor_visible(vis_cols);
-                        return true;
-                    }
-                    Key::Named(NamedKey::ArrowLeft) => {
-                        tab.move_left();
-                        tab.ensure_cursor_visible(vis_cols);
-                        return true;
-                    }
-                    Key::Named(NamedKey::ArrowRight) => {
-                        tab.move_right();
-                        tab.ensure_cursor_visible(vis_cols);
-                        return true;
-                    }
-                    Key::Named(NamedKey::Home) => {
-                        tab.cursor_col = 0;
-                        tab.ensure_cursor_visible(vis_cols);
-                        return true;
-                    }
-                    Key::Named(NamedKey::End) => {
-                        tab.cursor_col = tab.current_input.chars().count();
-                        tab.ensure_cursor_visible(vis_cols);
-                        return true;
-                    }
-                    Key::Named(NamedKey::ArrowUp) => {
-                        tab.history_up();
-                        tab.ensure_cursor_visible(vis_cols);
-                        return true;
-                    }
-                    Key::Named(NamedKey::ArrowDown) => {
-                        tab.history_down();
-                        tab.ensure_cursor_visible(vis_cols);
-                        return true;
-                    }
-                    _ => {
-                        if !is_ctrl {
-                            if let Some(txt) = &event.text {
-                                for ch in txt.chars() {
-                                    if !ch.is_control() {
-                                        tab.insert_char(ch);
-                                    }
-                                }
-                                tab.ensure_cursor_visible(vis_cols);
-                                return true;
-                            }
-                        }
                     }
                 }
-            }
-
-            if should_exit {
-                let new_btn_w = "New".len() * char_w + 20;
-                let strip_min_x = layout.content_left + new_btn_w;
-                let strip_max_x = screen_w;
-                let available_w = strip_max_x.saturating_sub(strip_min_x);
-                let active_idx = terminal.active_idx;
-                terminal.remove_terminal(active_idx, char_w, available_w);
-                return true;
             }
 
             return false;

@@ -125,8 +125,7 @@ impl InputHandler {
             }
 
             let vbar_x = layout.content_right;
-            let hbar_y = screen_h.saturating_sub(SCROLLBAR_THICKNESS);
-            if mx >= vbar_x || my >= hbar_y {
+            if mx >= vbar_x {
                 return CursorIcon::Default;
             }
 
@@ -367,6 +366,15 @@ impl InputHandler {
                 };
                 if terminal.height != new_h {
                     terminal.height = new_h;
+                    let vis_rows = terminal.vis_rows(line_h);
+                    let text_left = layout.content_left + 14;
+                    let text_right = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
+                    let vis_cols = if char_w > 0 {
+                        text_right.saturating_sub(text_left) / char_w
+                    } else {
+                        80
+                    };
+                    terminal.resize_active_pty(vis_rows, vis_cols);
                     changed = true;
                 }
             }
@@ -379,32 +387,14 @@ impl InputHandler {
                     let total_l = tab.total_lines();
                     let line_idx = (tab.scroll_line + row).min(total_l.saturating_sub(1));
                     let col = if (mx as i32) <= (text_left as i32) {
-                        tab.scroll_col
+                        0
                     } else {
                         let rel_x = mx - text_left;
-                        tab.scroll_col + (rel_x / char_w.max(1))
+                        rel_x / char_w.max(1)
                     };
-                    let line_len = tab
-                        .get_line_text(line_idx)
-                        .map(|s| s.chars().count())
-                        .unwrap_or(0);
+                    let line_len = tab.get_row(line_idx).map(|r| r.cells.len()).unwrap_or(0);
                     let clamped_col = col.min(line_len);
                     tab.selection_end = Some((line_idx, clamped_col));
-                    let active_line_idx = total_l.saturating_sub(1);
-                    if !tab.is_running && line_idx == active_line_idx {
-                        let p_len = tab.prompt().chars().count();
-                        let cur = clamped_col
-                            .saturating_sub(p_len)
-                            .min(tab.current_input.chars().count());
-                        tab.cursor_col = cur;
-                        let vbar_x = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
-                        let vis_cols = if char_w > 0 {
-                            vbar_x.saturating_sub(text_left) / char_w
-                        } else {
-                            0
-                        };
-                        tab.ensure_cursor_visible(vis_cols);
-                    }
                     changed = true;
                 }
             }
@@ -415,7 +405,7 @@ impl InputHandler {
                 let term_y = screen_h.saturating_sub(terminal.height);
                 let shell_y = term_y + 1 + TERMINAL_TAB_BAR_HEIGHT;
                 let shell_h = screen_h.saturating_sub(shell_y);
-                let track_h = shell_h.saturating_sub(SCROLLBAR_THICKNESS);
+                let track_h = shell_h;
                 let vis_lines = terminal.vis_rows(line_h);
                 if let Some(tab) = terminal.active_tab_mut() {
                     let total = tab.total_lines();
@@ -428,33 +418,6 @@ impl InputHandler {
                                     .clamp(0.0, max_s) as usize;
                             if tab.scroll_line != target {
                                 tab.scroll_line = target;
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-            }
-            DragState::TerminalHorizontal { start_x, start_col } => {
-                let term_w = screen_w.saturating_sub(layout.content_left);
-                let track_w = term_w.saturating_sub(SCROLLBAR_THICKNESS);
-                let text_left = layout.content_left + 14;
-                let text_right = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
-                let vis_cols = if char_w > 0 {
-                    text_right.saturating_sub(text_left) / char_w
-                } else {
-                    0
-                };
-                if let Some(tab) = terminal.active_tab_mut() {
-                    let max_c = tab.max_content_cols();
-                    if let Some((_, tw)) = calc_thumb(max_c, vis_cols, tab.scroll_col, track_w) {
-                        let travel = track_w.saturating_sub(tw) as f64;
-                        if travel > 0.0 {
-                            let max_s = (max_c - vis_cols) as f64;
-                            let target =
-                                (start_col as f64 + ((self.mouse_x - start_x) / travel) * max_s)
-                                    .clamp(0.0, max_s) as usize;
-                            if tab.scroll_col != target {
-                                tab.scroll_col = target;
                                 changed = true;
                             }
                         }
@@ -687,7 +650,15 @@ impl InputHandler {
                 let available_w = strip_max_x.saturating_sub(strip_min_x);
 
                 if mx < strip_min_x {
-                    terminal.add_terminal(char_w, available_w);
+                    let vis_rows = terminal.vis_rows(line_h);
+                    let text_left = layout.content_left + 14;
+                    let text_right = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
+                    let vis_cols = if char_w > 0 {
+                        text_right.saturating_sub(text_left) / char_w
+                    } else {
+                        80
+                    };
+                    terminal.add_terminal(char_w, available_w, vis_rows, vis_cols);
                     update_terminal_tab_hover(
                         terminal,
                         mx,
@@ -744,11 +715,8 @@ impl InputHandler {
 
             let shell_y = tabbar_y + TERMINAL_TAB_BAR_HEIGHT;
             let shell_h = screen_h.saturating_sub(shell_y);
-            let term_w = screen_w.saturating_sub(layout.content_left);
             let vbar_x = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
-            let hbar_y = screen_h.saturating_sub(SCROLLBAR_THICKNESS);
-            let track_h = shell_h.saturating_sub(SCROLLBAR_THICKNESS);
-            let track_w = term_w.saturating_sub(SCROLLBAR_THICKNESS);
+            let track_h = shell_h;
 
             if mx >= vbar_x && mx < screen_w && my >= shell_y && my < shell_y + track_h {
                 let vis_lines = terminal.vis_rows(line_h);
@@ -777,80 +745,25 @@ impl InputHandler {
                 return ActionEvent::Redraw;
             }
 
-            if my >= hbar_y && mx >= layout.content_left && mx < layout.content_left + track_w {
-                let text_left = layout.content_left + 14;
-                let text_right = vbar_x;
-                let vis_cols = if char_w > 0 {
-                    text_right.saturating_sub(text_left) / char_w
-                } else {
-                    0
-                };
-                if let Some(tab) = terminal.active_tab_mut() {
-                    let max_c = tab.max_content_cols();
-                    if let Some((tx_offset, tw)) =
-                        calc_thumb(max_c, vis_cols, tab.scroll_col, track_w)
-                    {
-                        let tx = layout.content_left + tx_offset;
-                        if mx >= tx && mx < tx + tw {
-                            self.drag = DragState::TerminalHorizontal {
-                                start_x: self.mouse_x,
-                                start_col: tab.scroll_col,
-                            };
-                        } else {
-                            let ratio = ((mx.saturating_sub(layout.content_left)) as f64
-                                / track_w as f64)
-                                .clamp(0.0, 1.0);
-                            tab.scroll_col = (ratio * (max_c - vis_cols) as f64) as usize;
-                            self.drag = DragState::TerminalHorizontal {
-                                start_x: self.mouse_x,
-                                start_col: tab.scroll_col,
-                            };
-                            return ActionEvent::Redraw;
-                        }
-                    }
-                }
-                terminal.focused = true;
-                return ActionEvent::Redraw;
-            }
-
-            if my >= shell_y && my < hbar_y && mx >= layout.content_left && mx < vbar_x {
+            if my >= shell_y && mx >= layout.content_left && mx < vbar_x {
                 terminal.focused = true;
                 let text_left = layout.content_left + 14;
-                let text_right = vbar_x;
-                let vis_cols = if char_w > 0 {
-                    text_right.saturating_sub(text_left) / char_w
-                } else {
-                    0
-                };
                 let row = my.saturating_sub(shell_y + 4) / line_h.max(1);
 
                 if let Some(tab) = terminal.active_tab_mut() {
                     let line_idx = tab.scroll_line + row;
                     let col = if (mx as i32) < (text_left as i32) {
-                        tab.scroll_col
+                        0
                     } else {
-                        tab.scroll_col + ((mx - text_left) / char_w.max(1))
+                        (mx - text_left) / char_w.max(1)
                     };
 
                     let total_l = tab.total_lines();
                     if line_idx < total_l {
-                        let line_len = tab
-                            .get_line_text(line_idx)
-                            .map(|s| s.chars().count())
-                            .unwrap_or(0);
+                        let line_len = tab.get_row(line_idx).map(|r| r.cells.len()).unwrap_or(0);
                         let clamped_col = col.min(line_len);
                         tab.selection_anchor = Some((line_idx, clamped_col));
                         tab.selection_end = Some((line_idx, clamped_col));
-
-                        let active_line_idx = total_l.saturating_sub(1);
-                        if !tab.is_running && line_idx == active_line_idx {
-                            let p_len = tab.prompt().chars().count();
-                            let cur = clamped_col
-                                .saturating_sub(p_len)
-                                .min(tab.current_input.chars().count());
-                            tab.cursor_col = cur;
-                            tab.ensure_cursor_visible(vis_cols);
-                        }
                     } else {
                         tab.selection_anchor = None;
                         tab.selection_end = None;
@@ -1137,22 +1050,10 @@ impl InputHandler {
                 if let Some(tab) = terminal.active_tab_mut() {
                     let total_l = tab.total_lines();
                     let max_l = total_l.saturating_sub(vis_lines);
-
-                    let text_left = layout.content_left + 14;
-                    let text_right = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
-                    let vis_cols = if char_w > 0 {
-                        text_right.saturating_sub(text_left) / char_w
-                    } else {
-                        0
-                    };
-                    let max_c = tab.max_content_cols().saturating_sub(vis_cols);
-
                     let next_l = (tab.scroll_line as i32 - lines).clamp(0, max_l as i32) as usize;
-                    let next_c = (tab.scroll_col as i32 - cols).clamp(0, max_c as i32) as usize;
 
-                    if tab.scroll_line != next_l || tab.scroll_col != next_c {
+                    if tab.scroll_line != next_l {
                         tab.scroll_line = next_l;
-                        tab.scroll_col = next_c;
                         return true;
                     }
                 }

@@ -8,7 +8,8 @@ mod terminal;
 mod ui;
 
 use config::{
-    SIDEBAR_MIN_WIDTH, TAB_BAR_HEIGHT, TERMINAL_TAB_BAR_HEIGHT, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH,
+    SCROLLBAR_THICKNESS, SIDEBAR_MIN_WIDTH, TAB_BAR_HEIGHT, TERMINAL_TAB_BAR_HEIGHT,
+    WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH,
 };
 use editor::TabManager;
 use input::{ActionEvent, AppEvent, InputHandler};
@@ -17,6 +18,7 @@ use sidebar::{MenuItem, Sidebar};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use terminal::Terminal;
 use ui::{compute_layout, Renderer};
 use winit::{
@@ -269,8 +271,10 @@ impl ApplicationHandler<AppEvent> for App {
             }
         }
 
-        if self.terminal.has_running_process() {
-            event_loop.set_control_flow(ControlFlow::Poll);
+        if self.terminal.is_open && self.terminal.has_running_process() {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + Duration::from_millis(16),
+            ));
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
         }
@@ -418,6 +422,12 @@ impl ApplicationHandler<AppEvent> for App {
                 let min_sidebar_w = SIDEBAR_MIN_WIDTH.min(max_sidebar_w);
                 self.sidebar.width = self.sidebar.width.clamp(min_sidebar_w, max_sidebar_w);
 
+                let effective_sidebar_w = if self.sidebar.visible {
+                    self.sidebar.width
+                } else {
+                    0
+                };
+
                 if self.terminal.is_open {
                     let min_editor_h = TAB_BAR_HEIGHT + 40;
                     let max_term_h = screen_h.saturating_sub(min_editor_h);
@@ -427,13 +437,18 @@ impl ApplicationHandler<AppEvent> for App {
                     } else {
                         self.terminal.height.clamp(min_term_h, max_term_h)
                     };
+
+                    let vis_rows = self.terminal.vis_rows(lh);
+                    let text_left = effective_sidebar_w + 14;
+                    let text_right = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
+                    let vis_cols = if cw > 0 {
+                        text_right.saturating_sub(text_left) / cw
+                    } else {
+                        80
+                    };
+                    self.terminal.resize_active_pty(vis_rows, vis_cols);
                 }
 
-                let effective_sidebar_w = if self.sidebar.visible {
-                    self.sidebar.width
-                } else {
-                    0
-                };
                 let avail_w = screen_w.saturating_sub(effective_sidebar_w);
                 self.tabs.clamp_scroll(cw, avail_w);
                 if let Some(tab) = self.tabs.active_tab_mut() {
@@ -539,6 +554,17 @@ impl ApplicationHandler<AppEvent> for App {
                             total_lines,
                             effective_sidebar_w,
                         );
+                        if self.terminal.is_open {
+                            let vis_rows = self.terminal.vis_rows(lh);
+                            let text_left = new_layout.content_left + 14;
+                            let text_right = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
+                            let vis_cols = if cw > 0 {
+                                text_right.saturating_sub(text_left) / cw
+                            } else {
+                                80
+                            };
+                            self.terminal.resize_active_pty(vis_rows, vis_cols);
+                        }
                         self.input.handle_cursor_move(
                             self.input.mouse_x,
                             self.input.mouse_y,
@@ -803,12 +829,23 @@ impl ApplicationHandler<AppEvent> for App {
                         self.terminal.is_open = !self.terminal.is_open;
                         if self.terminal.is_open {
                             self.terminal.focused = true;
+                            let vis_rows = self.terminal.vis_rows(lh);
+                            let text_left = layout.content_left + 14;
+                            let text_right = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
+                            let vis_cols = if cw > 0 {
+                                text_right.saturating_sub(text_left) / cw
+                            } else {
+                                80
+                            };
                             if self.terminal.tabs.is_empty() {
                                 let new_btn_w = "New".len() * cw + 20;
                                 let strip_min_x = layout.content_left + new_btn_w;
                                 let strip_max_x = screen_w;
                                 let available_w = strip_max_x.saturating_sub(strip_min_x);
-                                self.terminal.add_terminal(cw, available_w);
+                                self.terminal
+                                    .add_terminal(cw, available_w, vis_rows, vis_cols);
+                            } else {
+                                self.terminal.resize_active_pty(vis_rows, vis_cols);
                             }
                         }
                         save_session(&self.sidebar, &self.tabs);
