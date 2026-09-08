@@ -3,7 +3,7 @@ pub mod tab;
 
 pub use tab::TerminalTab;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct Terminal {
     pub is_open: bool,
@@ -24,7 +24,7 @@ impl Terminal {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         Self {
             is_open: false,
-            height: 220,
+            height: 280,
             focused: false,
             tabs: Vec::new(),
             active_idx: 0,
@@ -93,7 +93,14 @@ impl Terminal {
     }
 
     pub fn add_terminal(&mut self, char_w: usize, available_w: usize, rows: usize, cols: usize) {
-        let tab = TerminalTab::new("terminal".to_string(), self.default_cwd.clone(), rows, cols);
+        let shell = tab::detect_shell();
+        let name = Path::new(&shell)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("terminal")
+            .to_string();
+
+        let tab = TerminalTab::new(name, self.default_cwd.clone(), rows, cols);
         self.tabs.push(tab);
         self.active_idx = self.tabs.len() - 1;
         self.focused = true;

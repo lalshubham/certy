@@ -67,6 +67,7 @@ pub struct TerminalScreen {
     pub scroll_top: usize,
     pub scroll_bottom: usize,
     saved_cursor: (usize, usize),
+    alt_saved_cursor: (usize, usize),
 }
 
 impl TerminalScreen {
@@ -88,6 +89,7 @@ impl TerminalScreen {
             scroll_top: 0,
             scroll_bottom: r.saturating_sub(1),
             saved_cursor: (0, 0),
+            alt_saved_cursor: (0, 0),
         }
     }
 
@@ -369,8 +371,8 @@ impl TerminalScreen {
         if params.starts_with('?') {
             let mode = &params[1..];
             match (mode, cmd) {
-                ("1049", b'h') | ("47", b'h') | ("1047", b'h') => {
-                    self.saved_cursor = (self.cursor_row, self.cursor_col);
+                ("1049", b'h') => {
+                    self.alt_saved_cursor = (self.cursor_row, self.cursor_col);
                     self.is_alt = true;
                     let c = self.cols;
                     for r in &mut self.alt_grid {
@@ -381,12 +383,33 @@ impl TerminalScreen {
                     self.scroll_top = 0;
                     self.scroll_bottom = self.rows.saturating_sub(1);
                 }
-                ("1049", b'l') | ("47", b'l') | ("1047", b'l') => {
+                ("1049", b'l') => {
                     self.is_alt = false;
-                    self.cursor_row = self.saved_cursor.0.min(self.rows.saturating_sub(1));
-                    self.cursor_col = self.saved_cursor.1.min(self.cols.saturating_sub(1));
+                    self.cursor_row = self.alt_saved_cursor.0.min(self.rows.saturating_sub(1));
+                    self.cursor_col = self.alt_saved_cursor.1.min(self.cols.saturating_sub(1));
                     self.scroll_top = 0;
                     self.scroll_bottom = self.rows.saturating_sub(1);
+                }
+                ("47", b'h') | ("1047", b'h') => {
+                    self.is_alt = true;
+                    let c = self.cols;
+                    for r in &mut self.alt_grid {
+                        *r = TerminalRow::new(c);
+                    }
+                    self.scroll_top = 0;
+                    self.scroll_bottom = self.rows.saturating_sub(1);
+                }
+                ("47", b'l') | ("1047", b'l') => {
+                    self.is_alt = false;
+                    self.scroll_top = 0;
+                    self.scroll_bottom = self.rows.saturating_sub(1);
+                }
+                ("1048", b'h') => {
+                    self.saved_cursor = (self.cursor_row, self.cursor_col);
+                }
+                ("1048", b'l') => {
+                    self.cursor_row = self.saved_cursor.0.min(self.rows.saturating_sub(1));
+                    self.cursor_col = self.saved_cursor.1.min(self.cols.saturating_sub(1));
                 }
                 ("25", b'h') => self.cursor_visible = true,
                 ("25", b'l') => self.cursor_visible = false,
@@ -402,6 +425,13 @@ impl TerminalScreen {
 
         match cmd {
             b'm' => self.handle_sgr(&parts),
+            b's' => {
+                self.saved_cursor = (self.cursor_row, self.cursor_col);
+            }
+            b'u' => {
+                self.cursor_row = self.saved_cursor.0.min(self.rows.saturating_sub(1));
+                self.cursor_col = self.saved_cursor.1.min(self.cols.saturating_sub(1));
+            }
             b'H' | b'f' => {
                 let r = parts.first().copied().unwrap_or(1).max(1);
                 let c = parts.get(1).copied().unwrap_or(1).max(1);
