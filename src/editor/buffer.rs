@@ -148,6 +148,69 @@ impl EditorBuffer {
         self.recompute_max_line_len();
     }
 
+    pub fn insert_newline(&mut self) {
+        self.delete_selection();
+
+        let (line_idx, col_idx) = self.cursor_pos();
+        let line_start = self.text.line_to_char(line_idx);
+        let line = self.text.line(line_idx);
+
+        let mut indent = String::new();
+        for ch in line.chars() {
+            if ch == ' ' || ch == '\t' {
+                indent.push(ch);
+            } else {
+                break;
+            }
+        }
+
+        if col_idx < indent.chars().count() {
+            indent.clear();
+        }
+
+        let prefix = self.text.slice(line_start..self.cursor_char).to_string();
+        let extra_indent = prefix.trim_end().ends_with('{');
+
+        let next_is_closing_brace = if self.cursor_char < self.text.len_chars() {
+            self.text.char(self.cursor_char) == '}'
+        } else {
+            false
+        };
+
+        if extra_indent && next_is_closing_brace {
+            let mut insertion = String::from("\n");
+            insertion.push_str(&indent);
+            insertion.push_str("    \n");
+            insertion.push_str(&indent);
+
+            let cursor_target = self.cursor_char + 1 + indent.chars().count() + 4;
+
+            self.text.insert(self.cursor_char, &insertion);
+            self.history.record(EditAction::Insert {
+                char_idx: self.cursor_char,
+                text: insertion,
+            });
+            self.cursor_char = cursor_target;
+        } else {
+            let mut insertion = String::from("\n");
+            insertion.push_str(&indent);
+            if extra_indent {
+                insertion.push_str("    ");
+            }
+
+            let char_count = insertion.chars().count();
+            self.text.insert(self.cursor_char, &insertion);
+            self.history.record(EditAction::Insert {
+                char_idx: self.cursor_char,
+                text: insertion,
+            });
+            self.cursor_char += char_count;
+        }
+
+        self.is_modified = true;
+        self.recompute_max_line_len();
+    }
+
     pub fn delete_backwards(&mut self) {
         if !self.delete_selection() && self.cursor_char > 0 {
             self.cursor_char -= 1;

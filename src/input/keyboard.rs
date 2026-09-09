@@ -279,7 +279,7 @@ impl InputHandler {
             match &event.logical_key {
                 Key::Named(NamedKey::Backspace) => buffer.delete_backwards(),
                 Key::Named(NamedKey::Delete) => buffer.delete_forward(),
-                Key::Named(NamedKey::Enter) => buffer.insert_char('\n'),
+                Key::Named(NamedKey::Enter) => buffer.insert_newline(),
                 Key::Named(NamedKey::Tab) => {
                     if !is_ctrl {
                         let (_, col) = buffer.cursor_pos();
