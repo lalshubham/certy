@@ -401,6 +401,257 @@ impl EditorBuffer {
         self.recompute_max_line_len();
     }
 
+    pub fn duplicate_line(&mut self) {
+        let (start_line, end_line) = match self.selection_range() {
+            Some((start, end)) => {
+                let s_line = self.text.char_to_line(start);
+                let mut e_line = self.text.char_to_line(end);
+                if end > start && end == self.text.line_to_char(e_line) {
+                    e_line = e_line.saturating_sub(1);
+                }
+                (s_line, e_line)
+            }
+            None => {
+                let (line, _) = self.cursor_pos();
+                (line, line)
+            }
+        };
+
+        let line_start = self.text.line_to_char(start_line);
+        let has_next = end_line + 1 < self.text.len_lines();
+        let line_end = if has_next {
+            self.text.line_to_char(end_line + 1)
+        } else {
+            self.text.len_chars()
+        };
+
+        let mut text = self.text.slice(line_start..line_end).to_string();
+        let insert_pos = line_end;
+        if !has_next && !text.ends_with('\n') {
+            text.insert(0, '\n');
+        }
+
+        let len = text.chars().count();
+        self.text.insert(insert_pos, &text);
+        self.history.record(EditAction::Insert {
+            char_idx: insert_pos,
+            text,
+        });
+
+        self.cursor_char += len;
+        if let Some(ref mut anchor) = self.selection_anchor {
+            *anchor += len;
+        }
+
+        self.is_modified = true;
+        self.recompute_max_line_len();
+    }
+
+    pub fn move_line_up(&mut self) {
+        let (start_line, end_line) = match self.selection_range() {
+            Some((start, end)) => {
+                let s_line = self.text.char_to_line(start);
+                let mut e_line = self.text.char_to_line(end);
+                if end > start && end == self.text.line_to_char(e_line) {
+                    e_line = e_line.saturating_sub(1);
+                }
+                (s_line, e_line)
+            }
+            None => {
+                let (line, _) = self.cursor_pos();
+                (line, line)
+            }
+        };
+
+        if start_line == 0 {
+            return;
+        }
+
+        let prev_line = start_line - 1;
+        let prev_start = self.text.line_to_char(prev_line);
+        let block_start = self.text.line_to_char(start_line);
+        let has_next = end_line + 1 < self.text.len_lines();
+        let block_end = if has_next {
+            self.text.line_to_char(end_line + 1)
+        } else {
+            self.text.len_chars()
+        };
+
+        let prev_text = self.text.slice(prev_start..block_start).to_string();
+        let block_text = self.text.slice(block_start..block_end).to_string();
+
+        let newline_seq = if prev_text.ends_with("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+
+        let (new_block, new_prev) = if !block_text.ends_with('\n') && prev_text.ends_with('\n') {
+            let prev_trimmed = &prev_text[..prev_text.len() - newline_seq.len()];
+            (
+                format!("{block_text}{newline_seq}"),
+                prev_trimmed.to_string(),
+            )
+        } else {
+            (block_text, prev_text)
+        };
+
+        let combined = format!("{new_block}{new_prev}");
+        let total_range = prev_start..block_end;
+        let old_text = self.text.slice(total_range.clone()).to_string();
+
+        self.text.remove(total_range);
+        self.history.record(EditAction::Delete {
+            char_idx: prev_start,
+            text: old_text,
+        });
+
+        self.text.insert(prev_start, &combined);
+        self.history.record(EditAction::Insert {
+            char_idx: prev_start,
+            text: combined,
+        });
+
+        let offset_in_block = self.cursor_char.saturating_sub(block_start);
+        self.cursor_char = prev_start + offset_in_block;
+
+        if let Some(ref mut anchor) = self.selection_anchor {
+            let anchor_offset = anchor.saturating_sub(block_start);
+            *anchor = prev_start + anchor_offset;
+        }
+
+        self.is_modified = true;
+        self.recompute_max_line_len();
+    }
+
+    pub fn move_line_down(&mut self) {
+        let (start_line, end_line) = match self.selection_range() {
+            Some((start, end)) => {
+                let s_line = self.text.char_to_line(start);
+                let mut e_line = self.text.char_to_line(end);
+                if end > start && end == self.text.line_to_char(e_line) {
+                    e_line = e_line.saturating_sub(1);
+                }
+                (s_line, e_line)
+            }
+            None => {
+                let (line, _) = self.cursor_pos();
+                (line, line)
+            }
+        };
+
+        let next_line = end_line + 1;
+        if next_line >= self.text.len_lines() {
+            return;
+        }
+
+        let block_start = self.text.line_to_char(start_line);
+        let next_line_start = self.text.line_to_char(next_line);
+        let has_after_next = next_line + 1 < self.text.len_lines();
+        let next_line_end = if has_after_next {
+            self.text.line_to_char(next_line + 1)
+        } else {
+            self.text.len_chars()
+        };
+
+        let block_text = self.text.slice(block_start..next_line_start).to_string();
+        let next_text = self.text.slice(next_line_start..next_line_end).to_string();
+
+        let newline_seq = if block_text.ends_with("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+
+        let (new_next, new_block) = if !next_text.ends_with('\n') && block_text.ends_with('\n') {
+            let block_trimmed = &block_text[..block_text.len() - newline_seq.len()];
+            (
+                format!("{next_text}{newline_seq}"),
+                block_trimmed.to_string(),
+            )
+        } else {
+            (next_text, block_text)
+        };
+
+        let combined = format!("{new_next}{new_block}");
+        let total_range = block_start..next_line_end;
+        let old_text = self.text.slice(total_range.clone()).to_string();
+
+        self.text.remove(total_range);
+        self.history.record(EditAction::Delete {
+            char_idx: block_start,
+            text: old_text,
+        });
+
+        self.text.insert(block_start, &combined);
+        self.history.record(EditAction::Insert {
+            char_idx: block_start,
+            text: combined,
+        });
+
+        let new_block_start = block_start + new_next.chars().count();
+        let offset_in_block = self.cursor_char.saturating_sub(block_start);
+        self.cursor_char = new_block_start + offset_in_block;
+
+        if let Some(ref mut anchor) = self.selection_anchor {
+            let anchor_offset = anchor.saturating_sub(block_start);
+            *anchor = new_block_start + anchor_offset;
+        }
+
+        self.is_modified = true;
+        self.recompute_max_line_len();
+    }
+
+    pub fn delete_line(&mut self) {
+        let total_lines = self.text.len_lines();
+        if self.text.len_chars() == 0 {
+            return;
+        }
+
+        let (start_line, end_line) = match self.selection_range() {
+            Some((start, end)) => {
+                let s_line = self.text.char_to_line(start);
+                let mut e_line = self.text.char_to_line(end);
+                if end > start && end == self.text.line_to_char(e_line) {
+                    e_line = e_line.saturating_sub(1);
+                }
+                (s_line, e_line)
+            }
+            None => {
+                let (line, _) = self.cursor_pos();
+                (line, line)
+            }
+        };
+
+        let (del_start, del_end) = if end_line + 1 < total_lines {
+            (
+                self.text.line_to_char(start_line),
+                self.text.line_to_char(end_line + 1),
+            )
+        } else if start_line > 0 {
+            (
+                self.text.line_to_char(start_line - 1) + self.line_len(start_line - 1),
+                self.text.len_chars(),
+            )
+        } else {
+            (0, self.text.len_chars())
+        };
+
+        if del_start < del_end {
+            let removed = self.text.slice(del_start..del_end).to_string();
+            self.text.remove(del_start..del_end);
+            self.history.record(EditAction::Delete {
+                char_idx: del_start,
+                text: removed,
+            });
+        }
+
+        self.selection_anchor = None;
+        self.cursor_char = del_start.min(self.text.len_chars());
+        self.is_modified = true;
+        self.recompute_max_line_len();
+    }
+
     pub fn delete_backwards(&mut self) {
         if !self.delete_selection() && self.cursor_char > 0 {
             let prev_idx = self.cursor_char - 1;

@@ -81,6 +81,7 @@ impl InputHandler {
 
         let is_ctrl = self.modifiers.control_key() || self.ctrl_down;
         let is_shift = self.modifiers.shift_key() || self.shift_down;
+        let is_alt = self.modifiers.alt_key();
 
         if terminal.is_open && terminal.focused {
             let is_c = matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyC))
@@ -212,6 +213,16 @@ impl InputHandler {
                     Key::Character(c) => c.eq_ignore_ascii_case("a") || c == "\u{1}",
                     _ => false,
                 };
+            let is_d = matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyD))
+                || match &event.logical_key {
+                    Key::Character(c) => c.eq_ignore_ascii_case("d") || c == "\u{4}",
+                    _ => false,
+                };
+            let is_k = matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyK))
+                || match &event.logical_key {
+                    Key::Character(c) => c.eq_ignore_ascii_case("k") || c == "\u{b}",
+                    _ => false,
+                };
 
             if is_ctrl && is_s {
                 let _ = buffer.save();
@@ -275,6 +286,16 @@ impl InputHandler {
                 buffer.select_all();
                 return true;
             }
+            if is_ctrl && !is_shift && !is_alt && is_d {
+                buffer.duplicate_line();
+                buffer.fit_view(layout.visible_lines, layout.visible_cols);
+                return true;
+            }
+            if is_ctrl && is_shift && !is_alt && is_k {
+                buffer.delete_line();
+                buffer.fit_view(layout.visible_lines, layout.visible_cols);
+                return true;
+            }
 
             match &event.logical_key {
                 Key::Named(NamedKey::Backspace) => buffer.delete_backwards(),
@@ -295,8 +316,20 @@ impl InputHandler {
                 }
                 Key::Named(NamedKey::ArrowLeft) => buffer.move_left(is_shift),
                 Key::Named(NamedKey::ArrowRight) => buffer.move_right(is_shift),
-                Key::Named(NamedKey::ArrowUp) => buffer.move_up(is_shift),
-                Key::Named(NamedKey::ArrowDown) => buffer.move_down(is_shift),
+                Key::Named(NamedKey::ArrowUp) => {
+                    if is_alt && !is_ctrl {
+                        buffer.move_line_up();
+                    } else {
+                        buffer.move_up(is_shift);
+                    }
+                }
+                Key::Named(NamedKey::ArrowDown) => {
+                    if is_alt && !is_ctrl {
+                        buffer.move_line_down();
+                    } else {
+                        buffer.move_down(is_shift);
+                    }
+                }
                 _ => {
                     if !is_ctrl {
                         if let Some(txt) = &event.text {
