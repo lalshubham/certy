@@ -5,6 +5,7 @@ pub mod mouse;
 pub use crate::ui::ContextMenu;
 pub use actions::{ActionEvent, AppEvent};
 
+use std::time::Instant;
 use winit::keyboard::ModifiersState;
 
 #[derive(Default, PartialEq)]
@@ -51,4 +52,7 @@ pub struct InputHandler {
     pub ctrl_down: bool,
     pub shift_down: bool,
     pub context_menu: Option<ContextMenu>,
+    pub last_click_time: Option<Instant>,
+    pub last_click_pos: (f64, f64),
+    pub click_count: usize,
 }

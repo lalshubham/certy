@@ -582,6 +582,15 @@ impl InputHandler {
         self.is_left_down = true;
         let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
 
+        if my < TAB_BAR_HEIGHT
+            || mx < layout.content_left
+            || mx >= layout.content_right
+            || my >= layout.content_bottom
+        {
+            self.last_click_time = None;
+            self.click_count = 0;
+        }
+
         if let Some(menu) = self.context_menu.take() {
             if mx >= menu.x && mx < menu.x + menu.width && my >= menu.y && my < menu.y + menu.height
             {
@@ -960,9 +969,42 @@ impl InputHandler {
                     } else {
                         0
                     };
+
+                    let now = std::time::Instant::now();
+                    let is_multi = if let Some(last_time) = self.last_click_time {
+                        let elapsed = now.duration_since(last_time);
+                        let dx = self.mouse_x - self.last_click_pos.0;
+                        let dy = self.mouse_y - self.last_click_pos.1;
+                        elapsed.as_millis() <= 500 && (dx * dx + dy * dy) <= 36.0
+                    } else {
+                        false
+                    };
+
+                    if is_multi {
+                        self.click_count = (self.click_count % 3) + 1;
+                    } else {
+                        self.click_count = 1;
+                    }
+                    self.last_click_time = Some(now);
+                    self.last_click_pos = (self.mouse_x, self.mouse_y);
+
                     active_buf.set_cursor_at(target_line, target_col);
-                    active_buf.selection_anchor = Some(active_buf.cursor_char);
-                    self.drag = DragState::SelectingText;
+
+                    match self.click_count {
+                        2 => {
+                            active_buf.select_word_at_cursor(target_col);
+                            self.drag = DragState::None;
+                        }
+                        3 => {
+                            active_buf.select_line_at_cursor();
+                            self.drag = DragState::None;
+                        }
+                        _ => {
+                            active_buf.selection_anchor = Some(active_buf.cursor_char);
+                            self.drag = DragState::SelectingText;
+                        }
+                    }
+
                     active_buf.fit_view(layout.visible_lines, layout.visible_cols);
                     return ActionEvent::Redraw;
                 }
