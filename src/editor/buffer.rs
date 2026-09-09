@@ -123,6 +123,83 @@ impl EditorBuffer {
         }
     }
 
+    pub fn type_char(&mut self, ch: char) {
+        if let Some((start, end)) = self.selection_range() {
+            let matching_close = match ch {
+                '(' => Some(')'),
+                '[' => Some(']'),
+                '{' => Some('}'),
+                '"' => Some('"'),
+                '\'' => Some('\''),
+                _ => None,
+            };
+
+            if let Some(close_ch) = matching_close {
+                let selected = self.text.slice(start..end).to_string();
+                let wrapped = format!("{ch}{selected}{close_ch}");
+                self.text.remove(start..end);
+                self.history.record(EditAction::Delete {
+                    char_idx: start,
+                    text: selected,
+                });
+                self.text.insert(start, &wrapped);
+                self.history.record(EditAction::Insert {
+                    char_idx: start,
+                    text: wrapped,
+                });
+                self.selection_anchor = Some(start + 1);
+                self.cursor_char = end + 1;
+                self.is_modified = true;
+                self.recompute_max_line_len();
+                return;
+            }
+        }
+
+        if matches!(ch, ')' | ']' | '}' | '"' | '\'') {
+            if self.cursor_char < self.text.len_chars() && self.selection_anchor.is_none() {
+                let next_ch = self.text.char(self.cursor_char);
+                if next_ch == ch {
+                    self.cursor_char += 1;
+                    return;
+                }
+            }
+        }
+
+        let pair = match ch {
+            '(' => Some("()"),
+            '[' => Some("[]"),
+            '{' => Some("{}"),
+            '"' => Some("\"\""),
+            '\'' => {
+                let prev_is_alphanumeric = if self.cursor_char > 0 {
+                    self.text.char(self.cursor_char - 1).is_alphanumeric()
+                } else {
+                    false
+                };
+                if prev_is_alphanumeric {
+                    None
+                } else {
+                    Some("''")
+                }
+            }
+            _ => None,
+        };
+
+        if let Some(p) = pair {
+            self.delete_selection();
+            self.text.insert(self.cursor_char, p);
+            self.history.record(EditAction::Insert {
+                char_idx: self.cursor_char,
+                text: p.to_string(),
+            });
+            self.cursor_char += 1;
+            self.is_modified = true;
+            self.recompute_max_line_len();
+        } else {
+            self.insert_char(ch);
+        }
+    }
+
     pub fn insert_char(&mut self, ch: char) {
         self.delete_selection();
         self.text.insert_char(self.cursor_char, ch);
@@ -213,6 +290,27 @@ impl EditorBuffer {
 
     pub fn delete_backwards(&mut self) {
         if !self.delete_selection() && self.cursor_char > 0 {
+            let prev_idx = self.cursor_char - 1;
+            if self.cursor_char < self.text.len_chars() {
+                let prev = self.text.char(prev_idx);
+                let next = self.text.char(self.cursor_char);
+                if matches!(
+                    (prev, next),
+                    ('(', ')') | ('[', ']') | ('{', '}') | ('"', '"') | ('\'', '\'')
+                ) {
+                    let removed = self.text.slice(prev_idx..prev_idx + 2).to_string();
+                    self.text.remove(prev_idx..prev_idx + 2);
+                    self.cursor_char = prev_idx;
+                    self.history.record(EditAction::Delete {
+                        char_idx: prev_idx,
+                        text: removed,
+                    });
+                    self.is_modified = true;
+                    self.recompute_max_line_len();
+                    return;
+                }
+            }
+
             self.cursor_char -= 1;
             let removed = self.text.char(self.cursor_char).to_string();
             self.text.remove(self.cursor_char..self.cursor_char + 1);

@@ -296,7 +296,7 @@ impl InputHandler {
                         if let Some(txt) = &event.text {
                             for ch in txt.chars() {
                                 if !ch.is_control() {
-                                    buffer.insert_char(ch);
+                                    buffer.type_char(ch);
                                 }
                             }
                         }
