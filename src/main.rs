@@ -13,7 +13,10 @@ use config::{
 };
 use editor::TabManager;
 use input::{ActionEvent, AppEvent, InputHandler};
-use session::{load_session, recovery_dir, recovery_file_name, save_session};
+use session::{
+    get_window_session_state, load_session, recovery_dir, recovery_file_name, save_session,
+    update_window_size,
+};
 use sidebar::{MenuItem, Sidebar};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -231,11 +234,15 @@ impl App {
 impl ApplicationHandler<AppEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
+            let (win_w, win_h, win_max) = get_window_session_state();
             let attributes = Window::default_attributes()
                 .with_title("Certy")
-                .with_inner_size(LogicalSize::new(1024.0, 768.0))
+                .with_inner_size(LogicalSize::new(
+                    win_w.max(WINDOW_MIN_WIDTH),
+                    win_h.max(WINDOW_MIN_HEIGHT),
+                ))
                 .with_min_inner_size(LogicalSize::new(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT))
-                .with_maximized(true);
+                .with_maximized(win_max);
             let window = Arc::new(
                 event_loop
                     .create_window(attributes)
@@ -411,9 +418,15 @@ impl ApplicationHandler<AppEvent> for App {
             }
 
             WindowEvent::Resized(size) => {
+                let is_max = window.is_maximized();
+                let logical = size.to_logical::<f64>(window.scale_factor());
+                update_window_size(logical.width, logical.height, is_max);
+                save_session(&self.sidebar, &self.tabs);
+
                 if let Some(ref mut renderer) = self.renderer {
                     renderer.resize(size.width, size.height);
                 }
+
                 let screen_w = size.width as usize;
                 let screen_h = size.height as usize;
 
