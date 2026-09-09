@@ -1,4 +1,5 @@
 use super::history::{EditAction, History};
+use crate::syntax::Language;
 use ropey::Rope;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Write};
@@ -648,6 +649,161 @@ impl EditorBuffer {
 
         self.selection_anchor = None;
         self.cursor_char = del_start.min(self.text.len_chars());
+        self.is_modified = true;
+        self.recompute_max_line_len();
+    }
+
+    pub fn toggle_line_comment(&mut self) {
+        let lang = Language::from_path(self.file_path.as_deref());
+        let prefix = match lang.line_comment_prefix() {
+            Some(p) => p,
+            None => return,
+        };
+
+        if self.text.len_chars() == 0 {
+            let comment_str = format!("{prefix} ");
+            let comment_len = comment_str.chars().count();
+            self.text.insert(0, &comment_str);
+            self.history.record(EditAction::Insert {
+                char_idx: 0,
+                text: comment_str,
+            });
+            self.cursor_char = comment_len;
+            self.is_modified = true;
+            self.recompute_max_line_len();
+            return;
+        }
+
+        let (start_line, end_line) = match self.selection_range() {
+            Some((start, end)) => {
+                let s_line = self.text.char_to_line(start);
+                let mut e_line = self.text.char_to_line(end);
+                if end > start && end == self.text.line_to_char(e_line) {
+                    e_line = e_line.saturating_sub(1);
+                }
+                (s_line, e_line)
+            }
+            None => {
+                let (line, _) = self.cursor_pos();
+                (line, line)
+            }
+        };
+
+        let mut has_non_empty = false;
+        let mut all_commented = true;
+
+        for line in start_line..=end_line {
+            let line_len = self.line_len(line);
+            let line_start = self.text.line_to_char(line);
+            let line_str = self
+                .text
+                .slice(line_start..line_start + line_len)
+                .to_string();
+            let indent_len = line_str
+                .chars()
+                .take_while(|&c| c == ' ' || c == '\t')
+                .count();
+            let trimmed = &line_str[indent_len..];
+
+            if !trimmed.is_empty() {
+                has_non_empty = true;
+                if !trimmed.starts_with(prefix) {
+                    all_commented = false;
+                    break;
+                }
+            }
+        }
+
+        if !has_non_empty {
+            all_commented = false;
+        }
+
+        if all_commented {
+            for line in (start_line..=end_line).rev() {
+                let line_len = self.line_len(line);
+                if line_len == 0 {
+                    continue;
+                }
+                let line_start = self.text.line_to_char(line);
+                let line_str = self
+                    .text
+                    .slice(line_start..line_start + line_len)
+                    .to_string();
+                let indent_len = line_str
+                    .chars()
+                    .take_while(|&c| c == ' ' || c == '\t')
+                    .count();
+                let trimmed = &line_str[indent_len..];
+
+                if trimmed.starts_with(prefix) {
+                    let del_start = line_start + indent_len;
+                    let del_count = if trimmed[prefix.len()..].starts_with(' ') {
+                        prefix.chars().count() + 1
+                    } else {
+                        prefix.chars().count()
+                    };
+
+                    let del_range = del_start..del_start + del_count;
+                    let removed = self.text.slice(del_range.clone()).to_string();
+                    self.text.remove(del_range);
+                    self.history.record(EditAction::Delete {
+                        char_idx: del_start,
+                        text: removed,
+                    });
+
+                    if self.cursor_char >= del_start + del_count {
+                        self.cursor_char -= del_count;
+                    } else if self.cursor_char > del_start {
+                        self.cursor_char = del_start;
+                    }
+
+                    if let Some(ref mut anchor) = self.selection_anchor {
+                        if *anchor >= del_start + del_count {
+                            *anchor -= del_count;
+                        } else if *anchor > del_start {
+                            *anchor = del_start;
+                        }
+                    }
+                }
+            }
+        } else {
+            let comment_str = format!("{prefix} ");
+            let comment_len = comment_str.chars().count();
+
+            for line in (start_line..=end_line).rev() {
+                let line_len = self.line_len(line);
+                if start_line != end_line && line_len == 0 {
+                    continue;
+                }
+                let line_start = self.text.line_to_char(line);
+                let line_str = self
+                    .text
+                    .slice(line_start..line_start + line_len)
+                    .to_string();
+                let indent_len = line_str
+                    .chars()
+                    .take_while(|&c| c == ' ' || c == '\t')
+                    .count();
+                let ins_pos = line_start + indent_len;
+
+                self.text.insert(ins_pos, &comment_str);
+                self.history.record(EditAction::Insert {
+                    char_idx: ins_pos,
+                    text: comment_str.clone(),
+                });
+
+                if self.cursor_char >= ins_pos {
+                    self.cursor_char += comment_len;
+                }
+
+                if let Some(ref mut anchor) = self.selection_anchor {
+                    if *anchor >= ins_pos {
+                        *anchor += comment_len;
+                    }
+                }
+            }
+        }
+
         self.is_modified = true;
         self.recompute_max_line_len();
     }

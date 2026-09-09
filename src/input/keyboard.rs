@@ -223,6 +223,13 @@ impl InputHandler {
                     Key::Character(c) => c.eq_ignore_ascii_case("k") || c == "\u{b}",
                     _ => false,
                 };
+            let is_slash = matches!(
+                event.physical_key,
+                PhysicalKey::Code(KeyCode::Slash | KeyCode::NumpadDivide)
+            ) || match &event.logical_key {
+                Key::Character(c) => c == "/" || c == "\u{1f}",
+                _ => false,
+            };
 
             if is_ctrl && is_s {
                 let _ = buffer.save();
@@ -293,6 +300,11 @@ impl InputHandler {
             }
             if is_ctrl && is_shift && !is_alt && is_k {
                 buffer.delete_line();
+                buffer.fit_view(layout.visible_lines, layout.visible_cols);
+                return true;
+            }
+            if is_ctrl && !is_shift && !is_alt && is_slash {
+                buffer.toggle_line_comment();
                 buffer.fit_view(layout.visible_lines, layout.visible_cols);
                 return true;
             }

@@ -20,6 +20,22 @@ pub enum Language {
 }
 
 impl Language {
+    pub fn line_comment_prefix(&self) -> Option<&'static str> {
+        match self {
+            Language::Rust
+            | Language::C
+            | Language::Cpp
+            | Language::CSharp
+            | Language::Java
+            | Language::JavaScript
+            | Language::TypeScript
+            | Language::Go
+            | Language::Php => Some("//"),
+            Language::Python | Language::Bash => Some("#"),
+            _ => Some("//"),
+        }
+    }
+
     pub fn from_path(path: Option<&Path>) -> Self {
         let path = match path {
             Some(p) => p,
