@@ -282,9 +282,15 @@ impl InputHandler {
                 Key::Named(NamedKey::Enter) => buffer.insert_newline(),
                 Key::Named(NamedKey::Tab) => {
                     if !is_ctrl {
-                        let (_, col) = buffer.cursor_pos();
-                        let spaces = 4 - (col % 4);
-                        buffer.insert_str(&"    "[..spaces]);
+                        if is_shift {
+                            buffer.unindent_selection();
+                        } else if buffer.selection_range().is_some() {
+                            buffer.indent_selection();
+                        } else {
+                            let (_, col) = buffer.cursor_pos();
+                            let spaces = 4 - (col % 4);
+                            buffer.insert_str(&"    "[..spaces]);
+                        }
                     }
                 }
                 Key::Named(NamedKey::ArrowLeft) => buffer.move_left(is_shift),

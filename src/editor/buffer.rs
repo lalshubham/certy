@@ -288,6 +288,119 @@ impl EditorBuffer {
         self.recompute_max_line_len();
     }
 
+    pub fn indent_selection(&mut self) {
+        let (start_line, end_line) = match self.selection_range() {
+            Some((start, end)) => {
+                let s_line = self.text.char_to_line(start);
+                let mut e_line = self.text.char_to_line(end);
+                if end > start && end == self.text.line_to_char(e_line) {
+                    e_line = e_line.saturating_sub(1);
+                }
+                (s_line, e_line)
+            }
+            None => {
+                let (line, _) = self.cursor_pos();
+                (line, line)
+            }
+        };
+
+        let is_multi_line = end_line > start_line;
+
+        for line in (start_line..=end_line).rev() {
+            if is_multi_line && self.line_len(line) == 0 {
+                continue;
+            }
+            let line_start = self.text.line_to_char(line);
+            self.text.insert(line_start, "    ");
+            self.history.record(EditAction::Insert {
+                char_idx: line_start,
+                text: "    ".to_string(),
+            });
+
+            if self.cursor_char > line_start {
+                self.cursor_char += 4;
+            } else if self.cursor_char == line_start && self.selection_anchor.is_none() {
+                self.cursor_char += 4;
+            }
+
+            if let Some(ref mut anchor) = self.selection_anchor {
+                if *anchor > line_start {
+                    *anchor += 4;
+                }
+            }
+        }
+
+        self.is_modified = true;
+        self.recompute_max_line_len();
+    }
+
+    pub fn unindent_selection(&mut self) {
+        let (start_line, end_line) = match self.selection_range() {
+            Some((start, end)) => {
+                let s_line = self.text.char_to_line(start);
+                let mut e_line = self.text.char_to_line(end);
+                if end > start && end == self.text.line_to_char(e_line) {
+                    e_line = e_line.saturating_sub(1);
+                }
+                (s_line, e_line)
+            }
+            None => {
+                let (line, _) = self.cursor_pos();
+                (line, line)
+            }
+        };
+
+        for line in (start_line..=end_line).rev() {
+            let line_start = self.text.line_to_char(line);
+            let line_slice = self.text.line(line);
+            let mut remove_count = 0;
+            for ch in line_slice.chars() {
+                if ch == ' ' {
+                    remove_count += 1;
+                    if remove_count == 4 {
+                        break;
+                    }
+                } else if ch == '\t' {
+                    if remove_count == 0 {
+                        remove_count = 1;
+                    }
+                    break;
+                } else {
+                    break;
+                }
+            }
+
+            if remove_count == 0 {
+                continue;
+            }
+
+            let remove_range = line_start..line_start + remove_count;
+            let removed_text = self.text.slice(remove_range.clone()).to_string();
+            self.text.remove(remove_range);
+            self.history.record(EditAction::Delete {
+                char_idx: line_start,
+                text: removed_text,
+            });
+
+            if self.cursor_char >= line_start + remove_count {
+                self.cursor_char -= remove_count;
+            } else if self.cursor_char > line_start {
+                self.cursor_char = line_start;
+            }
+
+            if let Some(ref mut anchor) = self.selection_anchor {
+                if *anchor >= line_start + remove_count {
+                    *anchor -= remove_count;
+                } else if *anchor > line_start {
+                    *anchor = line_start;
+                }
+            }
+        }
+
+        self.is_modified = true;
+        self.recompute_max_line_len();
+    }
+
     pub fn delete_backwards(&mut self) {
         if !self.delete_selection() && self.cursor_char > 0 {
             let prev_idx = self.cursor_char - 1;
