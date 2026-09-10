@@ -106,6 +106,27 @@ impl EditorBuffer {
             .map(|(s, e)| self.text.slice(s..e).to_string())
     }
 
+    pub fn replace_range(&mut self, start: usize, end: usize, new_text: &str) {
+        if start >= end || end > self.text.len_chars() {
+            return;
+        }
+        let removed = self.text.slice(start..end).to_string();
+        self.text.remove(start..end);
+        self.history.record(EditAction::Delete {
+            char_idx: start,
+            text: removed,
+        });
+        self.text.insert(start, new_text);
+        self.history.record(EditAction::Insert {
+            char_idx: start,
+            text: new_text.to_string(),
+        });
+        self.cursor_char = start + new_text.chars().count();
+        self.selection_anchor = None;
+        self.is_modified = true;
+        self.recompute_max_line_len();
+    }
+
     pub fn delete_selection(&mut self) -> bool {
         if let Some((start, end)) = self.selection_range() {
             let removed = self.text.slice(start..end).to_string();

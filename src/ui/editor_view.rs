@@ -18,7 +18,6 @@ pub fn render_editor_tabs(
     if tabs.tabs.is_empty() {
         return;
     }
-
     let cw = fonts.char_width;
     let lh = fonts.line_height;
     let tabbar_x = layout.content_left;
@@ -52,7 +51,6 @@ pub fn render_editor_tabs(
         let is_active = Some(idx) == tabs.active_idx;
         let is_tab_hovered = tabs.hovered_tab == Some(idx);
         let is_close_hovered = tabs.hovered_close == Some(idx);
-
         let tw = tab.width(cw);
         let tab_x0 = cur_x;
         let tab_x1 = cur_x + tw as i32;
@@ -100,10 +98,10 @@ pub fn render_editor_tabs(
         } else {
             COLOR_TAB_TEXT_INACTIVE
         };
-
         let dirty = if tab.buffer.is_modified { "* " } else { "" };
         let title_text = format!("{dirty}{}", tab.title);
         let text_clip_max = screen_w.min((tab_x1 - 26).max(0) as usize);
+
         draw_string_clipped(
             fonts,
             frame,
@@ -162,6 +160,7 @@ pub fn render_editor_buffer(
 
     let gutter_x = layout.content_left;
     let gutter_h = layout.content_bottom.saturating_sub(TAB_BAR_HEIGHT) + SCROLLBAR_THICKNESS;
+
     draw_solid_rect(
         frame,
         screen_w,
@@ -186,8 +185,8 @@ pub fn render_editor_buffer(
     let language = Language::from_path(buffer.file_path.as_deref());
     let mut in_comment_state =
         syntax::compute_initial_comment_state(buffer.text(), buffer.scroll_line, language);
-
     let digits = total_lines.to_string().len().max(3);
+
     for row in 0..=layout.visible_lines {
         let line_idx = buffer.scroll_line + row;
         if line_idx >= total_lines {
@@ -205,6 +204,7 @@ pub fn render_editor_buffer(
         } else {
             COLOR_LINE_NUMBER_MUTED
         };
+
         let mut nx = gutter_x + GUTTER_PADDING;
         for ch in num_str.chars() {
             fonts.draw_char(
@@ -235,6 +235,7 @@ pub fn render_editor_buffer(
             }
 
             let char_idx = line_start_char + col_idx;
+
             if let Some((start, end)) = sel_range {
                 if char_idx >= start && char_idx < end {
                     draw_solid_rect(
@@ -250,11 +251,24 @@ pub fn render_editor_buffer(
                 }
             }
 
+            if tabs.find.is_open && !tabs.find.matches.is_empty() {
+                for (m_idx, &(m_start, m_end)) in tabs.find.matches.iter().enumerate() {
+                    if char_idx >= m_start && char_idx < m_end {
+                        let color = if tabs.find.active_match_idx == Some(m_idx) {
+                            COLOR_FIND_ACTIVE
+                        } else {
+                            COLOR_FIND_MATCH
+                        };
+                        draw_solid_rect(frame, screen_w, screen_h, text_x, y, cw, lh, color);
+                        break;
+                    }
+                }
+            }
+
             let char_color = syntax_colors
                 .get(col_idx)
                 .copied()
                 .unwrap_or(COLOR_TEXT_DEFAULT);
-
             fonts.draw_char(
                 frame,
                 ch,
@@ -322,6 +336,7 @@ pub fn render_editor_buffer(
             COLOR_SCROLLBAR_THUMB,
         );
     }
+
     if let Some((tx_offset, tw)) = horiz_thumb {
         let tx = layout.bar_start_x + tx_offset;
         draw_solid_rect(
@@ -345,6 +360,7 @@ pub fn render_editor_buffer(
             COLOR_SCROLLBAR_THUMB,
         );
     }
+
     draw_solid_rect(
         frame,
         screen_w,
@@ -355,4 +371,734 @@ pub fn render_editor_buffer(
         SCROLLBAR_THICKNESS,
         COLOR_BACKGROUND,
     );
+
+    if tabs.find.is_open {
+        render_find_bar(frame, fonts, tabs, layout, screen_w, screen_h);
+    }
+}
+
+fn render_find_bar(
+    frame: &mut [u32],
+    fonts: &mut FontManager,
+    tabs: &TabManager,
+    layout: &ViewportLayout,
+    screen_w: usize,
+    screen_h: usize,
+) {
+    let cw = fonts.char_width;
+
+    let bar_h = if tabs.find.is_replace { 66 } else { 36 };
+    let bar_x = layout.content_left;
+    let bar_w = screen_w.saturating_sub(bar_x);
+    let bar_y = layout.content_bottom + SCROLLBAR_THICKNESS;
+
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        bar_x,
+        bar_y,
+        bar_w,
+        1,
+        COLOR_SIDEBAR_BORDER,
+    );
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        bar_x,
+        bar_y + 1,
+        bar_w,
+        bar_h - 1,
+        COLOR_TABBAR_BG,
+    );
+
+    let input_h: usize = 24;
+    let input_y = bar_y + 6;
+
+    let cap_h = (fonts.baseline_offset * 73) / 100;
+    let text_y =
+        input_y as i32 + (input_h as i32 + cap_h as i32) / 2 - fonts.baseline_offset as i32;
+
+    let close_w = ("Close".len() * cw + 16) as i32;
+    let close_btn_x = (bar_x + bar_w).saturating_sub(close_w as usize + 8);
+    let is_close_hovered = tabs.find.hovered_btn == Some(16);
+    let close_bg = if is_close_hovered {
+        COLOR_BTN_HOVER
+    } else {
+        COLOR_BTN_BG
+    };
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        close_btn_x,
+        input_y,
+        close_w as usize,
+        input_h,
+        close_bg,
+    );
+    let close_tx = close_btn_x as i32 + (close_w - ("Close".len() * cw) as i32) / 2;
+    draw_string_clipped(
+        fonts,
+        frame,
+        "Close",
+        close_tx,
+        text_y,
+        close_btn_x,
+        close_btn_x + close_w as usize,
+        screen_w,
+        screen_h,
+        COLOR_TAB_TEXT_ACTIVE,
+    );
+
+    let strip_min_x = bar_x;
+    let strip_max_x = close_btn_x.saturating_sub(6);
+
+    let mut cur_x = (strip_min_x as i32 + 8) - tabs.find.scroll_x as i32;
+
+    let toggle_label = if tabs.find.is_replace { "[-]" } else { "[+]" };
+    let toggle_w = (toggle_label.len() * cw + 6) as i32;
+    let toggle_tx = cur_x + (toggle_w - (toggle_label.len() * cw) as i32) / 2;
+    draw_string_clipped(
+        fonts,
+        frame,
+        toggle_label,
+        toggle_tx,
+        text_y,
+        strip_min_x,
+        strip_max_x,
+        screen_w,
+        screen_h,
+        COLOR_LINE_NUMBER_ACTIVE,
+    );
+    cur_x += toggle_w + 6;
+
+    let find_input_w = 240;
+    let is_find_focused =
+        tabs.find.focused && tabs.find.active_field == crate::editor::find::FindField::Find;
+    let border_find = if is_find_focused {
+        COLOR_CURSOR
+    } else {
+        COLOR_FIND_INPUT_BORDER
+    };
+
+    draw_solid_rect_clipped(
+        frame,
+        screen_w,
+        screen_h,
+        cur_x,
+        input_y as i32,
+        find_input_w,
+        input_h,
+        strip_min_x,
+        strip_max_x,
+        COLOR_FIND_INPUT_BG,
+    );
+    draw_solid_rect_clipped(
+        frame,
+        screen_w,
+        screen_h,
+        cur_x,
+        input_y as i32,
+        find_input_w,
+        1,
+        strip_min_x,
+        strip_max_x,
+        border_find,
+    );
+    draw_solid_rect_clipped(
+        frame,
+        screen_w,
+        screen_h,
+        cur_x,
+        (input_y + input_h - 1) as i32,
+        find_input_w,
+        1,
+        strip_min_x,
+        strip_max_x,
+        border_find,
+    );
+    draw_solid_rect_clipped(
+        frame,
+        screen_w,
+        screen_h,
+        cur_x,
+        input_y as i32,
+        1,
+        input_h,
+        strip_min_x,
+        strip_max_x,
+        border_find,
+    );
+    draw_solid_rect_clipped(
+        frame,
+        screen_w,
+        screen_h,
+        cur_x + find_input_w as i32 - 1,
+        input_y as i32,
+        1,
+        input_h,
+        strip_min_x,
+        strip_max_x,
+        border_find,
+    );
+
+    let text_clip_left = (cur_x + 6).max(strip_min_x as i32) as usize;
+    let text_clip_right = (cur_x + find_input_w as i32 - 6)
+        .min(strip_max_x as i32)
+        .max(0) as usize;
+    let max_vis_chars = if cw > 0 {
+        find_input_w.saturating_sub(12) / cw
+    } else {
+        10
+    };
+
+    if tabs.find.query.is_empty() {
+        draw_string_clipped(
+            fonts,
+            frame,
+            "Find",
+            cur_x + 6,
+            text_y,
+            text_clip_left,
+            text_clip_right,
+            screen_w,
+            screen_h,
+            COLOR_LINE_NUMBER_MUTED,
+        );
+        if is_find_focused && (cur_x + 6) >= strip_min_x as i32 && (cur_x + 8) <= strip_max_x as i32
+        {
+            let cur_top = input_y + 3;
+            draw_solid_rect(
+                frame,
+                screen_w,
+                screen_h,
+                (cur_x + 6) as usize,
+                cur_top,
+                2,
+                18,
+                COLOR_CURSOR,
+            );
+        }
+    } else {
+        let q_len = tabs.find.query.chars().count();
+        let cur = tabs.find.query_cursor.min(q_len);
+        let scroll_offset = if cur > max_vis_chars {
+            cur - max_vis_chars
+        } else {
+            0
+        };
+        let visible_str: String = tabs.find.query.chars().skip(scroll_offset).collect();
+
+        draw_string_clipped(
+            fonts,
+            frame,
+            &visible_str,
+            cur_x + 6,
+            text_y,
+            text_clip_left,
+            text_clip_right,
+            screen_w,
+            screen_h,
+            COLOR_TAB_TEXT_ACTIVE,
+        );
+
+        if is_find_focused {
+            let cur_col = cur - scroll_offset;
+            let cx = cur_x + 6 + (cur_col * cw) as i32;
+            if cx >= strip_min_x as i32
+                && (cx + 2) <= strip_max_x as i32
+                && cx <= (cur_x + find_input_w as i32 - 4)
+            {
+                let cur_top = input_y + 3;
+                draw_solid_rect(
+                    frame,
+                    screen_w,
+                    screen_h,
+                    cx as usize,
+                    cur_top,
+                    2,
+                    18,
+                    COLOR_CURSOR,
+                );
+            }
+        }
+    }
+    cur_x += find_input_w as i32 + 8;
+
+    let has_matches = !tabs.find.matches.is_empty();
+    let counter_str = tabs.find.counter_text();
+
+    if !counter_str.is_empty() {
+        let counter_fg = if !has_matches {
+            0xFFFF7B72
+        } else {
+            COLOR_SIDEBAR_TEXT
+        };
+        let counter_w = (counter_str.len() * cw + 12) as i32;
+        draw_string_clipped(
+            fonts,
+            frame,
+            &counter_str,
+            cur_x,
+            text_y,
+            strip_min_x,
+            strip_max_x,
+            screen_w,
+            screen_h,
+            counter_fg,
+        );
+        cur_x += counter_w + 8;
+    }
+
+    let mc_label = "Match Case";
+    let mc_w = (mc_label.len() * cw + 16) as i32;
+    let mc_active = tabs.find.match_case;
+    let mc_hovered = tabs.find.hovered_btn == Some(11);
+    let mc_bg = if mc_active {
+        COLOR_FIND_TOGGLE_ACTIVE_BG
+    } else if mc_hovered {
+        COLOR_BTN_HOVER
+    } else {
+        COLOR_BTN_BG
+    };
+    let mc_fg = if mc_active {
+        0xFFFFFFFF
+    } else {
+        COLOR_SIDEBAR_TEXT
+    };
+    draw_solid_rect_clipped(
+        frame,
+        screen_w,
+        screen_h,
+        cur_x,
+        input_y as i32,
+        mc_w as usize,
+        input_h,
+        strip_min_x,
+        strip_max_x,
+        mc_bg,
+    );
+    let mc_tx = cur_x + (mc_w - (mc_label.len() * cw) as i32) / 2;
+    draw_string_clipped(
+        fonts,
+        frame,
+        mc_label,
+        mc_tx,
+        text_y,
+        strip_min_x,
+        strip_max_x,
+        screen_w,
+        screen_h,
+        mc_fg,
+    );
+    cur_x += mc_w + 5;
+
+    let ww_label = "Whole Word";
+    let ww_w = (ww_label.len() * cw + 16) as i32;
+    let ww_active = tabs.find.whole_word;
+    let ww_hovered = tabs.find.hovered_btn == Some(12);
+    let ww_bg = if ww_active {
+        COLOR_FIND_TOGGLE_ACTIVE_BG
+    } else if ww_hovered {
+        COLOR_BTN_HOVER
+    } else {
+        COLOR_BTN_BG
+    };
+    let ww_fg = if ww_active {
+        0xFFFFFFFF
+    } else {
+        COLOR_SIDEBAR_TEXT
+    };
+    draw_solid_rect_clipped(
+        frame,
+        screen_w,
+        screen_h,
+        cur_x,
+        input_y as i32,
+        ww_w as usize,
+        input_h,
+        strip_min_x,
+        strip_max_x,
+        ww_bg,
+    );
+    let ww_tx = cur_x + (ww_w - (ww_label.len() * cw) as i32) / 2;
+    draw_string_clipped(
+        fonts,
+        frame,
+        ww_label,
+        ww_tx,
+        text_y,
+        strip_min_x,
+        strip_max_x,
+        screen_w,
+        screen_h,
+        ww_fg,
+    );
+    cur_x += ww_w + 5;
+
+    let re_label = "Regex";
+    let re_w = (re_label.len() * cw + 16) as i32;
+    let re_active = tabs.find.use_regex;
+    let re_hovered = tabs.find.hovered_btn == Some(13);
+    let re_bg = if re_active {
+        COLOR_FIND_TOGGLE_ACTIVE_BG
+    } else if re_hovered {
+        COLOR_BTN_HOVER
+    } else {
+        COLOR_BTN_BG
+    };
+    let re_fg = if re_active {
+        0xFFFFFFFF
+    } else {
+        COLOR_SIDEBAR_TEXT
+    };
+    draw_solid_rect_clipped(
+        frame,
+        screen_w,
+        screen_h,
+        cur_x,
+        input_y as i32,
+        re_w as usize,
+        input_h,
+        strip_min_x,
+        strip_max_x,
+        re_bg,
+    );
+    let re_tx = cur_x + (re_w - (re_label.len() * cw) as i32) / 2;
+    draw_string_clipped(
+        fonts,
+        frame,
+        re_label,
+        re_tx,
+        text_y,
+        strip_min_x,
+        strip_max_x,
+        screen_w,
+        screen_h,
+        re_fg,
+    );
+    cur_x += re_w + 8;
+
+    let prev_w = ("Previous".len() * cw + 16) as i32;
+    let prev_hovered = tabs.find.hovered_btn == Some(14) && has_matches;
+    let prev_bg = if prev_hovered {
+        COLOR_BTN_HOVER
+    } else if has_matches {
+        COLOR_BTN_BG
+    } else {
+        0xFF222222
+    };
+    let prev_fg = if has_matches {
+        COLOR_TAB_TEXT_ACTIVE
+    } else {
+        COLOR_LINE_NUMBER_MUTED
+    };
+    draw_solid_rect_clipped(
+        frame,
+        screen_w,
+        screen_h,
+        cur_x,
+        input_y as i32,
+        prev_w as usize,
+        input_h,
+        strip_min_x,
+        strip_max_x,
+        prev_bg,
+    );
+    let prev_tx = cur_x + (prev_w - ("Previous".len() * cw) as i32) / 2;
+    draw_string_clipped(
+        fonts,
+        frame,
+        "Previous",
+        prev_tx,
+        text_y,
+        strip_min_x,
+        strip_max_x,
+        screen_w,
+        screen_h,
+        prev_fg,
+    );
+    cur_x += prev_w + 5;
+
+    let next_w = ("Next".len() * cw + 16) as i32;
+    let next_hovered = tabs.find.hovered_btn == Some(15) && has_matches;
+    let next_bg = if next_hovered {
+        COLOR_BTN_HOVER
+    } else if has_matches {
+        COLOR_BTN_BG
+    } else {
+        0xFF222222
+    };
+    let next_fg = if has_matches {
+        COLOR_TAB_TEXT_ACTIVE
+    } else {
+        COLOR_LINE_NUMBER_MUTED
+    };
+    draw_solid_rect_clipped(
+        frame,
+        screen_w,
+        screen_h,
+        cur_x,
+        input_y as i32,
+        next_w as usize,
+        input_h,
+        strip_min_x,
+        strip_max_x,
+        next_bg,
+    );
+    let next_tx = cur_x + (next_w - ("Next".len() * cw) as i32) / 2;
+    draw_string_clipped(
+        fonts,
+        frame,
+        "Next",
+        next_tx,
+        text_y,
+        strip_min_x,
+        strip_max_x,
+        screen_w,
+        screen_h,
+        next_fg,
+    );
+
+    if tabs.find.is_replace {
+        let rep_y = bar_y + 36;
+        let rep_input_y = rep_y as i32;
+        let rep_text_y =
+            rep_input_y + (input_h as i32 + cap_h as i32) / 2 - fonts.baseline_offset as i32;
+
+        let mut r_cur_x = (strip_min_x as i32 + 8 + toggle_w + 6) - tabs.find.scroll_x as i32;
+
+        let rep_input_w = 240;
+        let is_rep_focused =
+            tabs.find.focused && tabs.find.active_field == crate::editor::find::FindField::Replace;
+        let border_rep = if is_rep_focused {
+            COLOR_CURSOR
+        } else {
+            COLOR_FIND_INPUT_BORDER
+        };
+
+        draw_solid_rect_clipped(
+            frame,
+            screen_w,
+            screen_h,
+            r_cur_x,
+            rep_input_y,
+            rep_input_w,
+            input_h,
+            strip_min_x,
+            strip_max_x,
+            COLOR_FIND_INPUT_BG,
+        );
+        draw_solid_rect_clipped(
+            frame,
+            screen_w,
+            screen_h,
+            r_cur_x,
+            rep_input_y,
+            rep_input_w,
+            1,
+            strip_min_x,
+            strip_max_x,
+            border_rep,
+        );
+        draw_solid_rect_clipped(
+            frame,
+            screen_w,
+            screen_h,
+            r_cur_x,
+            rep_input_y + input_h as i32 - 1,
+            rep_input_w,
+            1,
+            strip_min_x,
+            strip_max_x,
+            border_rep,
+        );
+        draw_solid_rect_clipped(
+            frame,
+            screen_w,
+            screen_h,
+            r_cur_x,
+            rep_input_y,
+            1,
+            input_h,
+            strip_min_x,
+            strip_max_x,
+            border_rep,
+        );
+        draw_solid_rect_clipped(
+            frame,
+            screen_w,
+            screen_h,
+            r_cur_x + rep_input_w as i32 - 1,
+            rep_input_y,
+            1,
+            input_h,
+            strip_min_x,
+            strip_max_x,
+            border_rep,
+        );
+
+        let rep_clip_left = (r_cur_x + 6).max(strip_min_x as i32) as usize;
+        let rep_clip_right = (r_cur_x + rep_input_w as i32 - 6)
+            .min(strip_max_x as i32)
+            .max(0) as usize;
+
+        if tabs.find.replace_text.is_empty() {
+            draw_string_clipped(
+                fonts,
+                frame,
+                "Replace",
+                r_cur_x + 6,
+                rep_text_y,
+                rep_clip_left,
+                rep_clip_right,
+                screen_w,
+                screen_h,
+                COLOR_LINE_NUMBER_MUTED,
+            );
+            if is_rep_focused
+                && (r_cur_x + 6) >= strip_min_x as i32
+                && (r_cur_x + 8) <= strip_max_x as i32
+            {
+                let cur_top = rep_y + 3;
+                draw_solid_rect(
+                    frame,
+                    screen_w,
+                    screen_h,
+                    (r_cur_x + 6) as usize,
+                    cur_top,
+                    2,
+                    18,
+                    COLOR_CURSOR,
+                );
+            }
+        } else {
+            let r_len = tabs.find.replace_text.chars().count();
+            let cur = tabs.find.replace_cursor.min(r_len);
+            let scroll_offset = if cur > max_vis_chars {
+                cur - max_vis_chars
+            } else {
+                0
+            };
+            let visible_str: String = tabs.find.replace_text.chars().skip(scroll_offset).collect();
+
+            draw_string_clipped(
+                fonts,
+                frame,
+                &visible_str,
+                r_cur_x + 6,
+                rep_text_y,
+                rep_clip_left,
+                rep_clip_right,
+                screen_w,
+                screen_h,
+                COLOR_TAB_TEXT_ACTIVE,
+            );
+
+            if is_rep_focused {
+                let cur_col = cur - scroll_offset;
+                let cx = r_cur_x + 6 + (cur_col * cw) as i32;
+                if cx >= strip_min_x as i32
+                    && (cx + 2) <= strip_max_x as i32
+                    && cx <= (r_cur_x + rep_input_w as i32 - 4)
+                {
+                    let cur_top = rep_y + 3;
+                    draw_solid_rect(
+                        frame,
+                        screen_w,
+                        screen_h,
+                        cx as usize,
+                        cur_top,
+                        2,
+                        18,
+                        COLOR_CURSOR,
+                    );
+                }
+            }
+        }
+        r_cur_x += rep_input_w as i32 + 8;
+
+        let rep_w = ("Replace".len() * cw + 16) as i32;
+        let rep_hovered = tabs.find.hovered_btn == Some(20) && has_matches;
+        let rep_bg = if rep_hovered {
+            COLOR_BTN_HOVER
+        } else if has_matches {
+            COLOR_BTN_BG
+        } else {
+            0xFF222222
+        };
+        let rep_fg = if has_matches {
+            COLOR_TAB_TEXT_ACTIVE
+        } else {
+            COLOR_LINE_NUMBER_MUTED
+        };
+        draw_solid_rect_clipped(
+            frame,
+            screen_w,
+            screen_h,
+            r_cur_x,
+            rep_input_y,
+            rep_w as usize,
+            input_h,
+            strip_min_x,
+            strip_max_x,
+            rep_bg,
+        );
+        let rep_tx = r_cur_x + (rep_w - ("Replace".len() * cw) as i32) / 2;
+        draw_string_clipped(
+            fonts,
+            frame,
+            "Replace",
+            rep_tx,
+            rep_text_y,
+            strip_min_x,
+            strip_max_x,
+            screen_w,
+            screen_h,
+            rep_fg,
+        );
+        r_cur_x += rep_w + 6;
+
+        let all_w = ("Replace All".len() * cw + 16) as i32;
+        let all_hovered = tabs.find.hovered_btn == Some(21) && has_matches;
+        let all_bg = if all_hovered {
+            COLOR_BTN_HOVER
+        } else if has_matches {
+            COLOR_BTN_BG
+        } else {
+            0xFF222222
+        };
+        let all_fg = if has_matches {
+            COLOR_TAB_TEXT_ACTIVE
+        } else {
+            COLOR_LINE_NUMBER_MUTED
+        };
+        draw_solid_rect_clipped(
+            frame,
+            screen_w,
+            screen_h,
+            r_cur_x,
+            rep_input_y,
+            all_w as usize,
+            input_h,
+            strip_min_x,
+            strip_max_x,
+            all_bg,
+        );
+        let all_tx = r_cur_x + (all_w - ("Replace All".len() * cw) as i32) / 2;
+        draw_string_clipped(
+            fonts,
+            frame,
+            "Replace All",
+            all_tx,
+            rep_text_y,
+            strip_min_x,
+            strip_max_x,
+            screen_w,
+            screen_h,
+            all_fg,
+        );
+    }
 }

@@ -1,4 +1,5 @@
 use super::buffer::EditorBuffer;
+use super::find::FindState;
 use std::path::{Path, PathBuf};
 
 pub struct Tab {
@@ -24,6 +25,7 @@ pub struct TabManager {
     pub closing_files: bool,
     pub hovered_modal_btn: Option<usize>,
     pub scroll_x: usize,
+    pub find: FindState,
 }
 
 impl TabManager {
@@ -38,6 +40,7 @@ impl TabManager {
             closing_files: false,
             hovered_modal_btn: None,
             scroll_x: 0,
+            find: FindState::new(),
         }
     }
 
