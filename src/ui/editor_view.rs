@@ -22,7 +22,6 @@ pub fn render_editor_tabs(
     let lh = fonts.line_height;
     let tabbar_x = layout.content_left;
     let tabbar_w = screen_w.saturating_sub(tabbar_x);
-
     draw_solid_rect(
         frame,
         screen_w,
@@ -43,10 +42,8 @@ pub fn render_editor_tabs(
         1,
         COLOR_TAB_BORDER,
     );
-
     let mut cur_x = tabbar_x as i32 - tabs.scroll_x as i32;
     let tab_text_offset_y = (TAB_BAR_HEIGHT.saturating_sub(lh)) / 2;
-
     for (idx, tab) in tabs.tabs.iter().enumerate() {
         let is_active = Some(idx) == tabs.active_idx;
         let is_tab_hovered = tabs.hovered_tab == Some(idx);
@@ -55,11 +52,9 @@ pub fn render_editor_tabs(
         let tab_x0 = cur_x;
         let tab_x1 = cur_x + tw as i32;
         cur_x += tw as i32;
-
         if tab_x1 <= tabbar_x as i32 || tab_x0 >= screen_w as i32 {
             continue;
         }
-
         let bg = if is_active {
             COLOR_TAB_ACTIVE_BG
         } else if is_tab_hovered {
@@ -67,7 +62,6 @@ pub fn render_editor_tabs(
         } else {
             COLOR_TABBAR_BG
         };
-
         draw_solid_rect_clipped(
             frame,
             screen_w,
@@ -92,7 +86,6 @@ pub fn render_editor_tabs(
             screen_w,
             COLOR_TAB_BORDER,
         );
-
         let text_color = if is_active {
             COLOR_TAB_TEXT_ACTIVE
         } else {
@@ -101,7 +94,6 @@ pub fn render_editor_tabs(
         let dirty = if tab.buffer.is_modified { "* " } else { "" };
         let title_text = format!("{dirty}{}", tab.title);
         let text_clip_max = screen_w.min((tab_x1 - 26).max(0) as usize);
-
         draw_string_clipped(
             fonts,
             frame,
@@ -114,7 +106,6 @@ pub fn render_editor_tabs(
             screen_h,
             text_color,
         );
-
         let icon_size = 8;
         let close_x = tab_x1 - 22;
         let close_y = (TAB_BAR_HEIGHT.saturating_sub(icon_size)) / 2;
@@ -123,7 +114,6 @@ pub fn render_editor_tabs(
         } else {
             text_color
         };
-
         draw_close_icon_clipped(
             frame,
             screen_w,
@@ -151,16 +141,13 @@ pub fn render_editor_buffer(
         Some(t) => t,
         None => return,
     };
-
     let cw = fonts.char_width;
     let lh = fonts.line_height;
     let buffer = &tab.buffer;
     let (cur_line, cur_col) = buffer.cursor_pos();
     let sel_range = buffer.selection_range();
-
     let gutter_x = layout.content_left;
     let gutter_h = layout.content_bottom.saturating_sub(TAB_BAR_HEIGHT) + SCROLLBAR_THICKNESS;
-
     draw_solid_rect(
         frame,
         screen_w,
@@ -181,30 +168,25 @@ pub fn render_editor_buffer(
         gutter_h,
         COLOR_GUTTER_SEPARATOR,
     );
-
     let language = Language::from_path(buffer.file_path.as_deref());
     let mut in_comment_state =
         syntax::compute_initial_comment_state(buffer.text(), buffer.scroll_line, language);
     let digits = total_lines.to_string().len().max(3);
-
     for row in 0..=layout.visible_lines {
         let line_idx = buffer.scroll_line + row;
         if line_idx >= total_lines {
             break;
         }
-
         let y = TAB_BAR_HEIGHT + TOP_PADDING + row * lh;
         if y + lh > layout.content_bottom {
             break;
         }
-
         let num_str = format!("{:>width$}", line_idx + 1, width = digits);
         let num_color = if line_idx == cur_line {
             COLOR_LINE_NUMBER_ACTIVE
         } else {
             COLOR_LINE_NUMBER_MUTED
         };
-
         let mut nx = gutter_x + GUTTER_PADDING;
         for ch in num_str.chars() {
             fonts.draw_char(
@@ -212,30 +194,24 @@ pub fn render_editor_buffer(
             );
             nx += cw;
         }
-
         let line = buffer.text().line(line_idx);
         let line_start_char = buffer.text().line_to_char(line_idx);
         let line_chars: Vec<char> = line
             .chars()
             .take_while(|&c| c != '\n' && c != '\r')
             .collect();
-
         let (syntax_colors, next_comment_state) =
             syntax::highlight_line(&line_chars, language, in_comment_state, COLOR_TEXT_DEFAULT);
         in_comment_state = next_comment_state;
-
         for (col_idx, &ch) in line_chars.iter().enumerate() {
             if col_idx < buffer.scroll_col {
                 continue;
             }
-
             let text_x = layout.code_x + (col_idx - buffer.scroll_col) * cw;
             if text_x + cw > layout.content_right {
                 break;
             }
-
             let char_idx = line_start_char + col_idx;
-
             if let Some((start, end)) = sel_range {
                 if char_idx >= start && char_idx < end {
                     draw_solid_rect(
@@ -250,7 +226,6 @@ pub fn render_editor_buffer(
                     );
                 }
             }
-
             if tabs.find.is_open && !tabs.find.matches.is_empty() {
                 for (m_idx, &(m_start, m_end)) in tabs.find.matches.iter().enumerate() {
                     if char_idx >= m_start && char_idx < m_end {
@@ -264,7 +239,6 @@ pub fn render_editor_buffer(
                     }
                 }
             }
-
             let char_color = syntax_colors
                 .get(col_idx)
                 .copied()
@@ -280,7 +254,6 @@ pub fn render_editor_buffer(
             );
         }
     }
-
     if cur_line >= buffer.scroll_line
         && cur_line < buffer.scroll_line + layout.visible_lines
         && cur_col >= buffer.scroll_col
@@ -296,7 +269,6 @@ pub fn render_editor_buffer(
             }
         }
     }
-
     let usable_track_h = layout.content_bottom.saturating_sub(TAB_BAR_HEIGHT);
     let virtual_total_lines = total_lines + layout.visible_lines.saturating_sub(1);
     let vert_thumb = calc_thumb(
@@ -312,7 +284,6 @@ pub fn render_editor_buffer(
         buffer.scroll_col,
         horiz_track_w,
     );
-
     if let Some((ty, th)) = vert_thumb {
         let thumb_y = TAB_BAR_HEIGHT + ty;
         draw_solid_rect(
@@ -336,7 +307,6 @@ pub fn render_editor_buffer(
             COLOR_SCROLLBAR_THUMB,
         );
     }
-
     if let Some((tx_offset, tw)) = horiz_thumb {
         let tx = layout.bar_start_x + tx_offset;
         draw_solid_rect(
@@ -360,7 +330,6 @@ pub fn render_editor_buffer(
             COLOR_SCROLLBAR_THUMB,
         );
     }
-
     draw_solid_rect(
         frame,
         screen_w,
@@ -371,7 +340,6 @@ pub fn render_editor_buffer(
         SCROLLBAR_THICKNESS,
         COLOR_BACKGROUND,
     );
-
     if tabs.find.is_open {
         render_find_bar(frame, fonts, tabs, layout, screen_w, screen_h);
     }
@@ -386,7 +354,6 @@ fn render_find_bar(
     screen_h: usize,
 ) {
     let cw = fonts.char_width;
-
     let bar_h = if tabs.find.is_replace { 66 } else { 36 };
     let bar_x = layout.content_left;
     let bar_w = screen_w.saturating_sub(bar_x);
@@ -415,25 +382,33 @@ fn render_find_bar(
 
     let input_h: usize = 24;
     let input_y = bar_y + 6;
+    let bottom_row_y = if tabs.find.is_replace {
+        bar_y + 36
+    } else {
+        bar_y + 6
+    };
 
     let cap_h = (fonts.baseline_offset * 73) / 100;
-    let text_y =
+    let text_y_top =
         input_y as i32 + (input_h as i32 + cap_h as i32) / 2 - fonts.baseline_offset as i32;
+    let text_y_bottom =
+        bottom_row_y as i32 + (input_h as i32 + cap_h as i32) / 2 - fonts.baseline_offset as i32;
 
     let close_w = ("Close".len() * cw + 16) as i32;
-    let close_btn_x = (bar_x + bar_w).saturating_sub(close_w as usize + 8);
+    let close_btn_x = (bar_x + bar_w).saturating_sub(close_w as usize + 6);
     let is_close_hovered = tabs.find.hovered_btn == Some(16);
     let close_bg = if is_close_hovered {
         COLOR_BTN_HOVER
     } else {
         COLOR_BTN_BG
     };
+
     draw_solid_rect(
         frame,
         screen_w,
         screen_h,
         close_btn_x,
-        input_y,
+        bottom_row_y,
         close_w as usize,
         input_h,
         close_bg,
@@ -444,7 +419,7 @@ fn render_find_bar(
         frame,
         "Close",
         close_tx,
-        text_y,
+        text_y_bottom,
         close_btn_x,
         close_btn_x + close_w as usize,
         screen_w,
@@ -455,24 +430,25 @@ fn render_find_bar(
     let strip_min_x = bar_x;
     let strip_max_x = close_btn_x.saturating_sub(6);
 
-    let mut cur_x = (strip_min_x as i32 + 8) - tabs.find.scroll_x as i32;
-
     let toggle_label = if tabs.find.is_replace { "[-]" } else { "[+]" };
     let toggle_w = (toggle_label.len() * cw + 6) as i32;
-    let toggle_tx = cur_x + (toggle_w - (toggle_label.len() * cw) as i32) / 2;
+    let toggle_x = strip_min_x as i32 + 6;
+    let toggle_tx = toggle_x + (toggle_w - (toggle_label.len() * cw) as i32) / 2;
     draw_string_clipped(
         fonts,
         frame,
         toggle_label,
         toggle_tx,
-        text_y,
+        text_y_bottom,
         strip_min_x,
         strip_max_x,
         screen_w,
         screen_h,
         COLOR_LINE_NUMBER_ACTIVE,
     );
-    cur_x += toggle_w + 6;
+
+    let scrollable_min_x = toggle_x as usize + toggle_w as usize + 6;
+    let mut cur_x = scrollable_min_x as i32 - tabs.find.scroll_x as i32;
 
     let find_input_w = 240;
     let is_find_focused =
@@ -491,7 +467,7 @@ fn render_find_bar(
         input_y as i32,
         find_input_w,
         input_h,
-        strip_min_x,
+        scrollable_min_x,
         strip_max_x,
         COLOR_FIND_INPUT_BG,
     );
@@ -503,7 +479,7 @@ fn render_find_bar(
         input_y as i32,
         find_input_w,
         1,
-        strip_min_x,
+        scrollable_min_x,
         strip_max_x,
         border_find,
     );
@@ -515,7 +491,7 @@ fn render_find_bar(
         (input_y + input_h - 1) as i32,
         find_input_w,
         1,
-        strip_min_x,
+        scrollable_min_x,
         strip_max_x,
         border_find,
     );
@@ -527,7 +503,7 @@ fn render_find_bar(
         input_y as i32,
         1,
         input_h,
-        strip_min_x,
+        scrollable_min_x,
         strip_max_x,
         border_find,
     );
@@ -539,12 +515,12 @@ fn render_find_bar(
         input_y as i32,
         1,
         input_h,
-        strip_min_x,
+        scrollable_min_x,
         strip_max_x,
         border_find,
     );
 
-    let text_clip_left = (cur_x + 6).max(strip_min_x as i32) as usize;
+    let text_clip_left = (cur_x + 6).max(scrollable_min_x as i32) as usize;
     let text_clip_right = (cur_x + find_input_w as i32 - 6)
         .min(strip_max_x as i32)
         .max(0) as usize;
@@ -560,14 +536,16 @@ fn render_find_bar(
             frame,
             "Find",
             cur_x + 6,
-            text_y,
+            text_y_top,
             text_clip_left,
             text_clip_right,
             screen_w,
             screen_h,
             COLOR_LINE_NUMBER_MUTED,
         );
-        if is_find_focused && (cur_x + 6) >= strip_min_x as i32 && (cur_x + 8) <= strip_max_x as i32
+        if is_find_focused
+            && (cur_x + 6) >= scrollable_min_x as i32
+            && (cur_x + 8) <= strip_max_x as i32
         {
             let cur_top = input_y + 3;
             draw_solid_rect(
@@ -589,25 +567,47 @@ fn render_find_bar(
         } else {
             0
         };
+        if let Some(anchor) = tabs.find.query_selection_anchor {
+            let start = anchor.min(cur);
+            let end = anchor.max(cur);
+            if start < end {
+                let draw_start = start.saturating_sub(scroll_offset);
+                let draw_end = end.saturating_sub(scroll_offset).min(max_vis_chars);
+                if draw_start < draw_end {
+                    let sel_x = cur_x + 6 + (draw_start * cw) as i32;
+                    let sel_w = (draw_end - draw_start) * cw;
+                    draw_solid_rect_clipped(
+                        frame,
+                        screen_w,
+                        screen_h,
+                        sel_x,
+                        input_y as i32 + 3,
+                        sel_w,
+                        18,
+                        scrollable_min_x,
+                        strip_max_x,
+                        COLOR_SELECTION,
+                    );
+                }
+            }
+        }
         let visible_str: String = tabs.find.query.chars().skip(scroll_offset).collect();
-
         draw_string_clipped(
             fonts,
             frame,
             &visible_str,
             cur_x + 6,
-            text_y,
+            text_y_top,
             text_clip_left,
             text_clip_right,
             screen_w,
             screen_h,
             COLOR_TAB_TEXT_ACTIVE,
         );
-
         if is_find_focused {
             let cur_col = cur - scroll_offset;
             let cx = cur_x + 6 + (cur_col * cw) as i32;
-            if cx >= strip_min_x as i32
+            if cx >= scrollable_min_x as i32
                 && (cx + 2) <= strip_max_x as i32
                 && cx <= (cur_x + find_input_w as i32 - 4)
             {
@@ -625,32 +625,8 @@ fn render_find_bar(
             }
         }
     }
-    cur_x += find_input_w as i32 + 8;
 
-    let has_matches = !tabs.find.matches.is_empty();
-    let counter_str = tabs.find.counter_text();
-
-    if !counter_str.is_empty() {
-        let counter_fg = if !has_matches {
-            0xFFFF7B72
-        } else {
-            COLOR_SIDEBAR_TEXT
-        };
-        let counter_w = (counter_str.len() * cw + 12) as i32;
-        draw_string_clipped(
-            fonts,
-            frame,
-            &counter_str,
-            cur_x,
-            text_y,
-            strip_min_x,
-            strip_max_x,
-            screen_w,
-            screen_h,
-            counter_fg,
-        );
-        cur_x += counter_w + 8;
-    }
+    cur_x += find_input_w as i32 + 6;
 
     let mc_label = "Match Case";
     let mc_w = (mc_label.len() * cw + 16) as i32;
@@ -676,7 +652,7 @@ fn render_find_bar(
         input_y as i32,
         mc_w as usize,
         input_h,
-        strip_min_x,
+        scrollable_min_x,
         strip_max_x,
         mc_bg,
     );
@@ -686,15 +662,15 @@ fn render_find_bar(
         frame,
         mc_label,
         mc_tx,
-        text_y,
-        strip_min_x,
+        text_y_top,
+        scrollable_min_x,
         strip_max_x,
         screen_w,
         screen_h,
         mc_fg,
     );
-    cur_x += mc_w + 5;
 
+    cur_x += mc_w + 6;
     let ww_label = "Whole Word";
     let ww_w = (ww_label.len() * cw + 16) as i32;
     let ww_active = tabs.find.whole_word;
@@ -719,7 +695,7 @@ fn render_find_bar(
         input_y as i32,
         ww_w as usize,
         input_h,
-        strip_min_x,
+        scrollable_min_x,
         strip_max_x,
         ww_bg,
     );
@@ -729,15 +705,15 @@ fn render_find_bar(
         frame,
         ww_label,
         ww_tx,
-        text_y,
-        strip_min_x,
+        text_y_top,
+        scrollable_min_x,
         strip_max_x,
         screen_w,
         screen_h,
         ww_fg,
     );
-    cur_x += ww_w + 5;
 
+    cur_x += ww_w + 6;
     let re_label = "Regex";
     let re_w = (re_label.len() * cw + 16) as i32;
     let re_active = tabs.find.use_regex;
@@ -762,7 +738,7 @@ fn render_find_bar(
         input_y as i32,
         re_w as usize,
         input_h,
-        strip_min_x,
+        scrollable_min_x,
         strip_max_x,
         re_bg,
     );
@@ -772,15 +748,16 @@ fn render_find_bar(
         frame,
         re_label,
         re_tx,
-        text_y,
-        strip_min_x,
+        text_y_top,
+        scrollable_min_x,
         strip_max_x,
         screen_w,
         screen_h,
         re_fg,
     );
-    cur_x += re_w + 8;
 
+    cur_x += re_w + 6;
+    let has_matches = !tabs.find.matches.is_empty();
     let prev_w = ("Previous".len() * cw + 16) as i32;
     let prev_hovered = tabs.find.hovered_btn == Some(14) && has_matches;
     let prev_bg = if prev_hovered {
@@ -803,7 +780,7 @@ fn render_find_bar(
         input_y as i32,
         prev_w as usize,
         input_h,
-        strip_min_x,
+        scrollable_min_x,
         strip_max_x,
         prev_bg,
     );
@@ -813,15 +790,15 @@ fn render_find_bar(
         frame,
         "Previous",
         prev_tx,
-        text_y,
-        strip_min_x,
+        text_y_top,
+        scrollable_min_x,
         strip_max_x,
         screen_w,
         screen_h,
         prev_fg,
     );
-    cur_x += prev_w + 5;
 
+    cur_x += prev_w + 6;
     let next_w = ("Next".len() * cw + 16) as i32;
     let next_hovered = tabs.find.hovered_btn == Some(15) && has_matches;
     let next_bg = if next_hovered {
@@ -844,7 +821,7 @@ fn render_find_bar(
         input_y as i32,
         next_w as usize,
         input_h,
-        strip_min_x,
+        scrollable_min_x,
         strip_max_x,
         next_bg,
     );
@@ -854,22 +831,39 @@ fn render_find_bar(
         frame,
         "Next",
         next_tx,
-        text_y,
-        strip_min_x,
+        text_y_top,
+        scrollable_min_x,
         strip_max_x,
         screen_w,
         screen_h,
         next_fg,
     );
 
+    cur_x += next_w + 6;
+    let counter_str = tabs.find.counter_text();
+    if !counter_str.is_empty() {
+        let counter_fg = if !has_matches {
+            0xFFFF7B72
+        } else {
+            COLOR_SIDEBAR_TEXT
+        };
+        draw_string_clipped(
+            fonts,
+            frame,
+            &counter_str,
+            cur_x,
+            text_y_top,
+            scrollable_min_x,
+            strip_max_x,
+            screen_w,
+            screen_h,
+            counter_fg,
+        );
+    }
+
     if tabs.find.is_replace {
-        let rep_y = bar_y + 36;
-        let rep_input_y = rep_y as i32;
-        let rep_text_y =
-            rep_input_y + (input_h as i32 + cap_h as i32) / 2 - fonts.baseline_offset as i32;
-
-        let mut r_cur_x = (strip_min_x as i32 + 8 + toggle_w + 6) - tabs.find.scroll_x as i32;
-
+        let rep_input_y = bottom_row_y;
+        let mut r_cur_x = scrollable_min_x as i32 - tabs.find.scroll_x as i32;
         let rep_input_w = 240;
         let is_rep_focused =
             tabs.find.focused && tabs.find.active_field == crate::editor::find::FindField::Replace;
@@ -878,16 +872,15 @@ fn render_find_bar(
         } else {
             COLOR_FIND_INPUT_BORDER
         };
-
         draw_solid_rect_clipped(
             frame,
             screen_w,
             screen_h,
             r_cur_x,
-            rep_input_y,
+            rep_input_y as i32,
             rep_input_w,
             input_h,
-            strip_min_x,
+            scrollable_min_x,
             strip_max_x,
             COLOR_FIND_INPUT_BG,
         );
@@ -896,10 +889,10 @@ fn render_find_bar(
             screen_w,
             screen_h,
             r_cur_x,
-            rep_input_y,
+            rep_input_y as i32,
             rep_input_w,
             1,
-            strip_min_x,
+            scrollable_min_x,
             strip_max_x,
             border_rep,
         );
@@ -908,10 +901,10 @@ fn render_find_bar(
             screen_w,
             screen_h,
             r_cur_x,
-            rep_input_y + input_h as i32 - 1,
+            rep_input_y as i32 + input_h as i32 - 1,
             rep_input_w,
             1,
-            strip_min_x,
+            scrollable_min_x,
             strip_max_x,
             border_rep,
         );
@@ -920,10 +913,10 @@ fn render_find_bar(
             screen_w,
             screen_h,
             r_cur_x,
-            rep_input_y,
+            rep_input_y as i32,
             1,
             input_h,
-            strip_min_x,
+            scrollable_min_x,
             strip_max_x,
             border_rep,
         );
@@ -932,15 +925,14 @@ fn render_find_bar(
             screen_w,
             screen_h,
             r_cur_x + rep_input_w as i32 - 1,
-            rep_input_y,
+            rep_input_y as i32,
             1,
             input_h,
-            strip_min_x,
+            scrollable_min_x,
             strip_max_x,
             border_rep,
         );
-
-        let rep_clip_left = (r_cur_x + 6).max(strip_min_x as i32) as usize;
+        let rep_clip_left = (r_cur_x + 6).max(scrollable_min_x as i32) as usize;
         let rep_clip_right = (r_cur_x + rep_input_w as i32 - 6)
             .min(strip_max_x as i32)
             .max(0) as usize;
@@ -951,7 +943,7 @@ fn render_find_bar(
                 frame,
                 "Replace",
                 r_cur_x + 6,
-                rep_text_y,
+                text_y_bottom,
                 rep_clip_left,
                 rep_clip_right,
                 screen_w,
@@ -959,10 +951,10 @@ fn render_find_bar(
                 COLOR_LINE_NUMBER_MUTED,
             );
             if is_rep_focused
-                && (r_cur_x + 6) >= strip_min_x as i32
+                && (r_cur_x + 6) >= scrollable_min_x as i32
                 && (r_cur_x + 8) <= strip_max_x as i32
             {
-                let cur_top = rep_y + 3;
+                let cur_top = rep_input_y + 3;
                 draw_solid_rect(
                     frame,
                     screen_w,
@@ -982,29 +974,51 @@ fn render_find_bar(
             } else {
                 0
             };
+            if let Some(anchor) = tabs.find.replace_selection_anchor {
+                let start = anchor.min(cur);
+                let end = anchor.max(cur);
+                if start < end {
+                    let draw_start = start.saturating_sub(scroll_offset);
+                    let draw_end = end.saturating_sub(scroll_offset).min(max_vis_chars);
+                    if draw_start < draw_end {
+                        let sel_x = r_cur_x + 6 + (draw_start * cw) as i32;
+                        let sel_w = (draw_end - draw_start) * cw;
+                        draw_solid_rect_clipped(
+                            frame,
+                            screen_w,
+                            screen_h,
+                            sel_x,
+                            rep_input_y as i32 + 3,
+                            sel_w,
+                            18,
+                            scrollable_min_x,
+                            strip_max_x,
+                            COLOR_SELECTION,
+                        );
+                    }
+                }
+            }
             let visible_str: String = tabs.find.replace_text.chars().skip(scroll_offset).collect();
-
             draw_string_clipped(
                 fonts,
                 frame,
                 &visible_str,
                 r_cur_x + 6,
-                rep_text_y,
+                text_y_bottom,
                 rep_clip_left,
                 rep_clip_right,
                 screen_w,
                 screen_h,
                 COLOR_TAB_TEXT_ACTIVE,
             );
-
             if is_rep_focused {
                 let cur_col = cur - scroll_offset;
                 let cx = r_cur_x + 6 + (cur_col * cw) as i32;
-                if cx >= strip_min_x as i32
+                if cx >= scrollable_min_x as i32
                     && (cx + 2) <= strip_max_x as i32
                     && cx <= (r_cur_x + rep_input_w as i32 - 4)
                 {
-                    let cur_top = rep_y + 3;
+                    let cur_top = rep_input_y + 3;
                     draw_solid_rect(
                         frame,
                         screen_w,
@@ -1018,8 +1032,8 @@ fn render_find_bar(
                 }
             }
         }
-        r_cur_x += rep_input_w as i32 + 8;
 
+        r_cur_x += rep_input_w as i32 + 6;
         let rep_w = ("Replace".len() * cw + 16) as i32;
         let rep_hovered = tabs.find.hovered_btn == Some(20) && has_matches;
         let rep_bg = if rep_hovered {
@@ -1039,10 +1053,10 @@ fn render_find_bar(
             screen_w,
             screen_h,
             r_cur_x,
-            rep_input_y,
+            rep_input_y as i32,
             rep_w as usize,
             input_h,
-            strip_min_x,
+            scrollable_min_x,
             strip_max_x,
             rep_bg,
         );
@@ -1052,15 +1066,15 @@ fn render_find_bar(
             frame,
             "Replace",
             rep_tx,
-            rep_text_y,
-            strip_min_x,
+            text_y_bottom,
+            scrollable_min_x,
             strip_max_x,
             screen_w,
             screen_h,
             rep_fg,
         );
-        r_cur_x += rep_w + 6;
 
+        r_cur_x += rep_w + 6;
         let all_w = ("Replace All".len() * cw + 16) as i32;
         let all_hovered = tabs.find.hovered_btn == Some(21) && has_matches;
         let all_bg = if all_hovered {
@@ -1080,10 +1094,10 @@ fn render_find_bar(
             screen_w,
             screen_h,
             r_cur_x,
-            rep_input_y,
+            rep_input_y as i32,
             all_w as usize,
             input_h,
-            strip_min_x,
+            scrollable_min_x,
             strip_max_x,
             all_bg,
         );
@@ -1093,8 +1107,8 @@ fn render_find_bar(
             frame,
             "Replace All",
             all_tx,
-            rep_text_y,
-            strip_min_x,
+            text_y_bottom,
+            scrollable_min_x,
             strip_max_x,
             screen_w,
             screen_h,

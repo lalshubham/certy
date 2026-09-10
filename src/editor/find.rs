@@ -15,6 +15,8 @@ pub struct FindState {
     pub replace_text: String,
     pub query_cursor: usize,
     pub replace_cursor: usize,
+    pub query_selection_anchor: Option<usize>,
+    pub replace_selection_anchor: Option<usize>,
     pub scroll_x: usize,
     pub active_field: FindField,
     pub matches: Vec<(usize, usize)>,
@@ -62,6 +64,8 @@ impl FindState {
         }
         self.query_cursor = self.query.chars().count();
         self.replace_cursor = self.replace_text.chars().count();
+        self.query_selection_anchor = None;
+        self.replace_selection_anchor = None;
         self.hovered_btn = None;
         self.scroll_x = 0;
         self.update_matches(buffer);
@@ -73,6 +77,8 @@ impl FindState {
         self.matches.clear();
         self.active_match_idx = None;
         self.hovered_btn = None;
+        self.query_selection_anchor = None;
+        self.replace_selection_anchor = None;
         self.scroll_x = 0;
     }
 
@@ -86,10 +92,9 @@ impl FindState {
 
     pub fn total_content_width(&self, char_w: usize) -> usize {
         let cw = char_w.max(1);
-        let toggle_w = "[+]".len() * cw + 6;
         let counter_str = self.counter_text();
         let counter_w = if !counter_str.is_empty() {
-            counter_str.len() * cw + 12 + 8
+            counter_str.len() * cw + 12 + 6
         } else {
             0
         };
@@ -99,35 +104,141 @@ impl FindState {
         let prev_w = "Previous".len() * cw + 16;
         let next_w = "Next".len() * cw + 16;
 
-        let row1_w = 8
-            + toggle_w
-            + 6
-            + 240
-            + 8
-            + counter_w
-            + mc_w
-            + 5
-            + ww_w
-            + 5
-            + re_w
-            + 8
-            + prev_w
-            + 5
-            + next_w
-            + 24;
+        let row1_w =
+            240 + 6 + mc_w + 6 + ww_w + 6 + re_w + 6 + prev_w + 6 + next_w + 6 + counter_w + 12;
 
         let row2_w = if self.is_replace {
             let rep_w = "Replace".len() * cw + 16;
             let all_w = "Replace All".len() * cw + 16;
-            8 + toggle_w + 6 + 240 + 8 + rep_w + 6 + all_w + 24
+            240 + 6 + rep_w + 6 + all_w + 12
         } else {
             0
         };
-
         row1_w.max(row2_w)
     }
 
+    pub fn delete_selection(&mut self) -> bool {
+        match self.active_field {
+            FindField::Find => {
+                if let Some(anchor) = self.query_selection_anchor {
+                    let start = anchor.min(self.query_cursor);
+                    let end = anchor.max(self.query_cursor);
+                    if start != end {
+                        let mut chars: Vec<char> = self.query.chars().collect();
+                        chars.drain(start..end);
+                        self.query = chars.into_iter().collect();
+                        self.query_cursor = start;
+                        self.query_selection_anchor = None;
+                        return true;
+                    }
+                    self.query_selection_anchor = None;
+                }
+            }
+            FindField::Replace => {
+                if let Some(anchor) = self.replace_selection_anchor {
+                    let start = anchor.min(self.replace_cursor);
+                    let end = anchor.max(self.replace_cursor);
+                    if start != end {
+                        let mut chars: Vec<char> = self.replace_text.chars().collect();
+                        chars.drain(start..end);
+                        self.replace_text = chars.into_iter().collect();
+                        self.replace_cursor = start;
+                        self.replace_selection_anchor = None;
+                        return true;
+                    }
+                    self.replace_selection_anchor = None;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn clear_selection(&mut self) {
+        match self.active_field {
+            FindField::Find => self.query_selection_anchor = None,
+            FindField::Replace => self.replace_selection_anchor = None,
+        }
+    }
+
+    pub fn select_all(&mut self) {
+        match self.active_field {
+            FindField::Find => {
+                self.query_selection_anchor = Some(0);
+                self.query_cursor = self.query.chars().count();
+            }
+            FindField::Replace => {
+                self.replace_selection_anchor = Some(0);
+                self.replace_cursor = self.replace_text.chars().count();
+            }
+        }
+    }
+
+    pub fn select_word(&mut self) {
+        let (text, cursor) = match self.active_field {
+            FindField::Find => (&self.query, self.query_cursor),
+            FindField::Replace => (&self.replace_text, self.replace_cursor),
+        };
+        let chars: Vec<char> = text.chars().collect();
+        if chars.is_empty() {
+            return;
+        }
+
+        let check_idx = if cursor >= chars.len() {
+            chars.len().saturating_sub(1)
+        } else {
+            cursor
+        };
+        let ch = chars[check_idx];
+        let is_alnum = ch.is_alphanumeric() || ch == '_';
+
+        let mut start = check_idx;
+        while start > 0 {
+            let prev = chars[start - 1];
+            if (prev.is_alphanumeric() || prev == '_') != is_alnum {
+                break;
+            }
+            start -= 1;
+        }
+        let mut end = check_idx;
+        while end < chars.len() {
+            let next = chars[end];
+            if (next.is_alphanumeric() || next == '_') != is_alnum {
+                break;
+            }
+            end += 1;
+        }
+
+        match self.active_field {
+            FindField::Find => {
+                self.query_selection_anchor = Some(start);
+                self.query_cursor = end;
+            }
+            FindField::Replace => {
+                self.replace_selection_anchor = Some(start);
+                self.replace_cursor = end;
+            }
+        }
+    }
+
+    pub fn selected_text(&self) -> Option<String> {
+        match self.active_field {
+            FindField::Find => self.query_selection_anchor.map(|anchor| {
+                let start = anchor.min(self.query_cursor);
+                let end = anchor.max(self.query_cursor);
+                let chars: Vec<char> = self.query.chars().collect();
+                chars[start..end].iter().collect()
+            }),
+            FindField::Replace => self.replace_selection_anchor.map(|anchor| {
+                let start = anchor.min(self.replace_cursor);
+                let end = anchor.max(self.replace_cursor);
+                let chars: Vec<char> = self.replace_text.chars().collect();
+                chars[start..end].iter().collect()
+            }),
+        }
+    }
+
     pub fn insert_char_at_cursor(&mut self, ch: char, buffer: &EditorBuffer) {
+        self.delete_selection();
         match self.active_field {
             FindField::Find => {
                 let mut chars: Vec<char> = self.query.chars().collect();
@@ -152,6 +263,7 @@ impl FindState {
         if clean.is_empty() {
             return;
         }
+        self.delete_selection();
         let count = clean.chars().count();
         match self.active_field {
             FindField::Find => {
@@ -177,6 +289,12 @@ impl FindState {
     }
 
     pub fn delete_backwards(&mut self, buffer: &EditorBuffer) {
+        if self.delete_selection() {
+            if self.active_field == FindField::Find {
+                self.update_matches(buffer);
+            }
+            return;
+        }
         match self.active_field {
             FindField::Find => {
                 if self.query_cursor > 0 {
@@ -203,6 +321,12 @@ impl FindState {
     }
 
     pub fn delete_forward(&mut self, buffer: &EditorBuffer) {
+        if self.delete_selection() {
+            if self.active_field == FindField::Find {
+                self.update_matches(buffer);
+            }
+            return;
+        }
         match self.active_field {
             FindField::Find => {
                 let mut chars: Vec<char> = self.query.chars().collect();
@@ -223,6 +347,7 @@ impl FindState {
     }
 
     pub fn move_cursor_left(&mut self) {
+        self.clear_selection();
         match self.active_field {
             FindField::Find => self.query_cursor = self.query_cursor.saturating_sub(1),
             FindField::Replace => self.replace_cursor = self.replace_cursor.saturating_sub(1),
@@ -230,6 +355,7 @@ impl FindState {
     }
 
     pub fn move_cursor_right(&mut self) {
+        self.clear_selection();
         match self.active_field {
             FindField::Find => {
                 let len = self.query.chars().count();
@@ -247,6 +373,7 @@ impl FindState {
     }
 
     pub fn move_cursor_home(&mut self) {
+        self.clear_selection();
         match self.active_field {
             FindField::Find => self.query_cursor = 0,
             FindField::Replace => self.replace_cursor = 0,
@@ -254,6 +381,7 @@ impl FindState {
     }
 
     pub fn move_cursor_end(&mut self) {
+        self.clear_selection();
         match self.active_field {
             FindField::Find => self.query_cursor = self.query.chars().count(),
             FindField::Replace => self.replace_cursor = self.replace_text.chars().count(),
@@ -352,7 +480,7 @@ impl FindState {
             let closest = self
                 .matches
                 .iter()
-                .position(|&(s, _)| s >= cur)
+                .position(|&(_, e)| cur <= e)
                 .unwrap_or(0);
             self.active_match_idx = Some(closest);
         }
@@ -492,7 +620,6 @@ impl CompiledRegex {
             }
             return;
         }
-
         match &pieces[0] {
             PatternPiece::Single(atom) => {
                 if char_idx < chars.len() && self.check_atom(atom, chars[char_idx]) {
@@ -557,7 +684,6 @@ fn compile_simple_regex(pat: &str, match_case: bool) -> Option<CompiledRegex> {
     let chars: Vec<char> = pat.chars().collect();
     let mut pieces = Vec::new();
     let mut i = 0;
-
     while i < chars.len() {
         let atom = match chars[i] {
             '.' => Atom::Any,
@@ -576,7 +702,6 @@ fn compile_simple_regex(pat: &str, match_case: bool) -> Option<CompiledRegex> {
             c => Atom::Literal(c),
         };
         i += 1;
-
         let piece = if i < chars.len() {
             match chars[i] {
                 '*' => {
@@ -598,6 +723,5 @@ fn compile_simple_regex(pat: &str, match_case: bool) -> Option<CompiledRegex> {
         };
         pieces.push(piece);
     }
-
     Some(CompiledRegex { pieces, match_case })
 }

@@ -23,32 +23,26 @@ fn update_terminal_tab_hover(
     terminal.hovered_new = false;
     terminal.hovered_tab = None;
     terminal.hovered_close_tab = None;
-
     if !terminal.is_open || mx < content_left || mx >= screen_w {
         return;
     }
-
     let term_y = screen_h.saturating_sub(terminal.height);
     let tabbar_y = term_y + 1;
     let tabbar_h = TERMINAL_TAB_BAR_HEIGHT;
-
     if my >= tabbar_y && my < tabbar_y + tabbar_h {
         let new_btn_w = "NEW".len() * char_w + 20;
         let strip_min_x = content_left + new_btn_w;
         let strip_max_x = screen_w;
-
         if mx < strip_min_x {
             terminal.hovered_new = true;
         } else {
             let mx_i32 = mx as i32;
             let mut cur_x = strip_min_x as i32 - terminal.tab_scroll_x as i32;
-
             for (idx, tab) in terminal.tabs.iter().enumerate() {
                 let tw = tab.width(char_w) as i32;
                 let tab_x0 = cur_x;
                 let tab_x1 = cur_x + tw;
                 cur_x += tw;
-
                 if mx_i32 >= tab_x0 && mx_i32 < tab_x1 && mx >= strip_min_x && mx < strip_max_x {
                     terminal.hovered_tab = Some(idx);
                     if mx_i32 >= tab_x1 - 27 && mx_i32 <= tab_x1 - 7 {
@@ -73,7 +67,6 @@ fn update_find_hover(
     if !tabs.find.is_open {
         return;
     }
-
     let bar_h = if tabs.find.is_replace { 66 } else { 36 };
     let bar_x = layout.content_left;
     let bar_w = screen_w.saturating_sub(bar_x);
@@ -86,91 +79,114 @@ fn update_find_hover(
     let cw = char_w.max(1);
     let input_h: usize = 24;
     let input_y = bar_y + 6;
-    let close_w = "Close".len() * cw + 16;
-    let close_btn_x = (bar_x + bar_w).saturating_sub(close_w + 8);
+    let bottom_row_y = if tabs.find.is_replace {
+        bar_y + 36
+    } else {
+        bar_y + 6
+    };
 
-    if mx >= close_btn_x && mx < close_btn_x + close_w && my >= input_y && my < input_y + input_h {
+    let close_w = "Close".len() * cw + 16;
+    let close_btn_x = (bar_x + bar_w).saturating_sub(close_w + 6);
+
+    if mx >= close_btn_x
+        && mx < close_btn_x + close_w
+        && my >= bottom_row_y
+        && my < bottom_row_y + input_h
+    {
         tabs.find.hovered_btn = Some(16);
         return;
     }
 
     let strip_min_x = bar_x;
     let strip_max_x = close_btn_x.saturating_sub(6);
-    let mut cur_x = (strip_min_x as i32 + 8) - tabs.find.scroll_x as i32;
 
     let toggle_label = if tabs.find.is_replace { "[-]" } else { "[+]" };
     let toggle_w = (toggle_label.len() * cw + 6) as i32;
+    let toggle_x = strip_min_x as i32 + 6;
 
-    if my >= input_y && my < input_y + input_h {
+    if my >= bottom_row_y && my < bottom_row_y + input_h {
         let mx_i = mx as i32;
-        if mx_i >= cur_x && mx_i < cur_x + toggle_w && mx >= strip_min_x && mx < strip_max_x {
+        if mx_i >= toggle_x && mx_i < toggle_x + toggle_w {
             tabs.find.hovered_btn = Some(10);
             return;
         }
     }
 
-    cur_x += toggle_w + 6;
-    let find_input_w: usize = 240;
-    cur_x += find_input_w as i32 + 8;
+    let scrollable_min_x = toggle_x as usize + toggle_w as usize + 6;
+    let mut cur_x = scrollable_min_x as i32 - tabs.find.scroll_x as i32;
 
-    let counter_str = tabs.find.counter_text();
-    if !counter_str.is_empty() {
-        let counter_w = (counter_str.len() * cw + 12) as i32;
-        cur_x += counter_w + 8;
-    }
+    let find_input_w: usize = 240;
+    cur_x += find_input_w as i32 + 6;
 
     let mc_w = ("Match Case".len() * cw + 16) as i32;
     let ww_w = ("Whole Word".len() * cw + 16) as i32;
     let re_w = ("Regex".len() * cw + 16) as i32;
     let prev_w = ("Previous".len() * cw + 16) as i32;
     let next_w = ("Next".len() * cw + 16) as i32;
+    let has_matches = !tabs.find.matches.is_empty();
 
     if my >= input_y && my < input_y + input_h {
         let mx_i = mx as i32;
-        if mx_i >= cur_x && mx_i < cur_x + mc_w && mx >= strip_min_x && mx < strip_max_x {
+        if mx_i >= cur_x && mx_i < cur_x + mc_w && mx >= scrollable_min_x && mx < strip_max_x {
             tabs.find.hovered_btn = Some(11);
             return;
         }
-        cur_x += mc_w + 5;
-        if mx_i >= cur_x && mx_i < cur_x + ww_w && mx >= strip_min_x && mx < strip_max_x {
+        cur_x += mc_w + 6;
+        if mx_i >= cur_x && mx_i < cur_x + ww_w && mx >= scrollable_min_x && mx < strip_max_x {
             tabs.find.hovered_btn = Some(12);
             return;
         }
-        cur_x += ww_w + 5;
-        if mx_i >= cur_x && mx_i < cur_x + re_w && mx >= strip_min_x && mx < strip_max_x {
+        cur_x += ww_w + 6;
+        if mx_i >= cur_x && mx_i < cur_x + re_w && mx >= scrollable_min_x && mx < strip_max_x {
             tabs.find.hovered_btn = Some(13);
             return;
         }
-        cur_x += re_w + 8;
-        if mx_i >= cur_x && mx_i < cur_x + prev_w && mx >= strip_min_x && mx < strip_max_x {
-            tabs.find.hovered_btn = Some(14);
+        cur_x += re_w + 6;
+        if mx_i >= cur_x && mx_i < cur_x + prev_w && mx >= scrollable_min_x && mx < strip_max_x {
+            if has_matches {
+                tabs.find.hovered_btn = Some(14);
+            }
             return;
         }
-        cur_x += prev_w + 5;
-        if mx_i >= cur_x && mx_i < cur_x + next_w && mx >= strip_min_x && mx < strip_max_x {
-            tabs.find.hovered_btn = Some(15);
+        cur_x += prev_w + 6;
+        if mx_i >= cur_x && mx_i < cur_x + next_w && mx >= scrollable_min_x && mx < strip_max_x {
+            if has_matches {
+                tabs.find.hovered_btn = Some(15);
+            }
             return;
         }
     }
 
     if tabs.find.is_replace {
-        let rep_y = bar_y + 36;
-        if my >= rep_y && my < rep_y + input_h {
-            let mut r_cur_x = (strip_min_x as i32 + 8 + toggle_w + 6) - tabs.find.scroll_x as i32;
+        let rep_input_y = bottom_row_y;
+        if my >= rep_input_y && my < rep_input_y + input_h {
+            let mut r_cur_x = scrollable_min_x as i32 - tabs.find.scroll_x as i32;
             let rep_input_w: usize = 240;
-            r_cur_x += rep_input_w as i32 + 8;
+            r_cur_x += rep_input_w as i32 + 6;
 
             let rep_w = ("Replace".len() * cw + 16) as i32;
             let all_w = ("Replace All".len() * cw + 16) as i32;
             let mx_i = mx as i32;
 
-            if mx_i >= r_cur_x && mx_i < r_cur_x + rep_w && mx >= strip_min_x && mx < strip_max_x {
-                tabs.find.hovered_btn = Some(20);
+            if mx_i >= r_cur_x
+                && mx_i < r_cur_x + rep_w
+                && mx >= scrollable_min_x
+                && mx < strip_max_x
+            {
+                if has_matches {
+                    tabs.find.hovered_btn = Some(20);
+                }
                 return;
             }
             r_cur_x += rep_w + 6;
-            if mx_i >= r_cur_x && mx_i < r_cur_x + all_w && mx >= strip_min_x && mx < strip_max_x {
-                tabs.find.hovered_btn = Some(21);
+            if mx_i >= r_cur_x
+                && mx_i < r_cur_x + all_w
+                && mx >= scrollable_min_x
+                && mx < strip_max_x
+            {
+                if has_matches {
+                    tabs.find.hovered_btn = Some(21);
+                }
                 return;
             }
         }
@@ -189,7 +205,6 @@ impl InputHandler {
         if !self.is_left_down && self.drag != DragState::None {
             self.drag = DragState::None;
         }
-
         if let Some(menu) = self.context_menu {
             return if menu.hovered_idx.is_some() {
                 CursorIcon::Pointer
@@ -197,7 +212,6 @@ impl InputHandler {
                 CursorIcon::Default
             };
         }
-
         if tabs.closing_app || tabs.closing_files || tabs.pending_close.is_some() {
             return if tabs.hovered_modal_btn.is_some() {
                 CursorIcon::Pointer
@@ -205,7 +219,6 @@ impl InputHandler {
                 CursorIcon::Default
             };
         }
-
         if matches!(self.drag, DragState::SidebarResize { .. }) {
             return CursorIcon::ColResize;
         }
@@ -218,13 +231,10 @@ impl InputHandler {
         if self.drag != DragState::None {
             return CursorIcon::Default;
         }
-
         let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
-
         if sidebar.visible && (mx as i32 - sidebar.width as i32).abs() <= 4 {
             return CursorIcon::ColResize;
         }
-
         if terminal.is_open && mx >= layout.content_left {
             let term_y = screen_h.saturating_sub(terminal.height);
             if (my as i32 - term_y as i32).abs() <= 3 {
@@ -240,17 +250,14 @@ impl InputHandler {
                     CursorIcon::Default
                 };
             }
-
             let vbar_x = layout.content_right;
             if mx >= vbar_x {
                 return CursorIcon::Default;
             }
-
             if my >= term_y + TERMINAL_TAB_BAR_HEIGHT {
                 return CursorIcon::Text;
             }
         }
-
         if sidebar.visible && mx < layout.content_left {
             return if sidebar.hovered_menu_header
                 || sidebar.hovered_menu_item.is_some()
@@ -263,7 +270,6 @@ impl InputHandler {
                 CursorIcon::Default
             };
         }
-
         if !tabs.tabs.is_empty() && my < TAB_BAR_HEIGHT {
             return if tabs.hovered_tab.is_some() || tabs.hovered_close.is_some() {
                 CursorIcon::Pointer
@@ -271,7 +277,6 @@ impl InputHandler {
                 CursorIcon::Default
             };
         }
-
         if tabs.find.is_open {
             let bar_h = if tabs.find.is_replace { 66 } else { 36 };
             let bar_y = layout.content_bottom + SCROLLBAR_THICKNESS;
@@ -280,13 +285,18 @@ impl InputHandler {
                 if tabs.find.hovered_btn.is_some() {
                     return CursorIcon::Pointer;
                 }
+
                 let cw = 9;
                 let close_w = "Close".len() * cw + 16;
                 let strip_min_x = layout.content_left;
-                let strip_max_x = layout.content_right.saturating_sub(close_w + 8 + 6);
+                let strip_max_x = layout.content_right.saturating_sub(close_w + 6 + 6);
                 let toggle_label = if tabs.find.is_replace { "[-]" } else { "[+]" };
                 let toggle_w = (toggle_label.len() * cw + 6) as i32;
-                let f_input_x = (strip_min_x as i32 + 8 + toggle_w + 6) - tabs.find.scroll_x as i32;
+
+                let toggle_x = strip_min_x as i32 + 6;
+                let scrollable_min_x = toggle_x as usize + toggle_w as usize + 6;
+
+                let f_input_x = scrollable_min_x as i32 - tabs.find.scroll_x as i32;
                 let f_input_y = bar_y + 6;
                 let mx_i = mx as i32;
 
@@ -294,19 +304,23 @@ impl InputHandler {
                     && my < f_input_y + 24
                     && mx_i >= f_input_x
                     && mx_i < f_input_x + 240
-                    && mx >= strip_min_x
+                    && mx >= scrollable_min_x
                     && mx < strip_max_x
                 {
                     return CursorIcon::Text;
                 }
 
                 if tabs.find.is_replace {
-                    let r_input_y = bar_y + 36;
+                    let r_input_y = if tabs.find.is_replace {
+                        bar_y + 36
+                    } else {
+                        bar_y + 6
+                    };
                     if my >= r_input_y
                         && my < r_input_y + 24
                         && mx_i >= f_input_x
                         && mx_i < f_input_x + 240
-                        && mx >= strip_min_x
+                        && mx >= scrollable_min_x
                         && mx < strip_max_x
                     {
                         return CursorIcon::Text;
@@ -316,7 +330,6 @@ impl InputHandler {
                 return CursorIcon::Default;
             }
         }
-
         if tabs.active_tab().is_some()
             && my < layout.content_bottom
             && mx >= layout.code_x
@@ -367,11 +380,9 @@ impl InputHandler {
         self.mouse_x = x;
         self.mouse_y = y;
         let (mx, my) = (x as usize, y as usize);
-
         if !self.is_left_down && self.drag != DragState::None {
             self.drag = DragState::None;
         }
-
         if let Some(ref mut menu) = self.context_menu {
             let prev_h = menu.hovered_idx;
             if mx >= menu.x && mx < menu.x + menu.width && my >= menu.y && my < menu.y + menu.height
@@ -390,11 +401,9 @@ impl InputHandler {
             }
             return prev_h != menu.hovered_idx;
         }
-
         if sidebar.visible {
             sidebar.clamp_scroll(screen_h);
         }
-
         if let Some(modal) = compute_modal_layout(tabs, screen_w, screen_h, char_w, line_h) {
             let prev = tabs.hovered_modal_btn;
             tabs.hovered_modal_btn = None;
@@ -406,7 +415,6 @@ impl InputHandler {
             }
             return prev != tabs.hovered_modal_btn;
         }
-
         let prev_sh = sidebar.hovered_menu_header;
         let prev_sitem = sidebar.hovered_menu_item;
         let prev_sterm = sidebar.hovered_terminal_header;
@@ -414,18 +422,15 @@ impl InputHandler {
         let prev_stree = sidebar.hovered_tree_row;
         let prev_th = tabs.hovered_tab;
         let prev_ch = tabs.hovered_close;
-
         let prev_t_new = terminal.hovered_new;
         let prev_t_tab = terminal.hovered_tab;
         let prev_t_tab_close = terminal.hovered_close_tab;
         let prev_find_hover = tabs.find.hovered_btn;
-
         sidebar.hovered_menu_header = false;
         sidebar.hovered_menu_item = None;
         sidebar.hovered_terminal_header = false;
         sidebar.hovered_root_header = false;
         sidebar.hovered_tree_row = None;
-
         update_terminal_tab_hover(
             terminal,
             mx,
@@ -435,19 +440,15 @@ impl InputHandler {
             screen_h,
             char_w,
         );
-
         update_find_hover(tabs, layout, screen_w, char_w, mx, my);
-
         let total_sidebar_h = sidebar.total_content_height();
         let has_sidebar_scroll = total_sidebar_h > screen_h;
         let bar_x = sidebar.width.saturating_sub(SCROLLBAR_THICKNESS);
-
         let can_save = tabs
             .active_tab()
             .map(|t| t.buffer.is_modified)
             .unwrap_or(false);
         let has_folder = sidebar.root_folder.is_some();
-
         if sidebar.visible && mx < sidebar.width {
             tabs.hovered_tab = None;
             tabs.hovered_close = None;
@@ -456,7 +457,6 @@ impl InputHandler {
                 if content_y >= 0 {
                     let cy = content_y as usize;
                     let menu_total_h = sidebar.menu_total_height();
-
                     if cy < TAB_BAR_HEIGHT {
                         sidebar.hovered_menu_header = true;
                     } else if sidebar.menu_expanded && cy < menu_total_h {
@@ -489,7 +489,6 @@ impl InputHandler {
         } else {
             self.update_tab_hover(tabs, layout, char_w);
         }
-
         let mut changed = prev_sh != sidebar.hovered_menu_header
             || prev_sitem != sidebar.hovered_menu_item
             || prev_sterm != sidebar.hovered_terminal_header
@@ -501,7 +500,6 @@ impl InputHandler {
             || prev_t_tab != terminal.hovered_tab
             || prev_t_tab_close != terminal.hovered_close_tab
             || prev_find_hover != tabs.find.hovered_btn;
-
         match self.drag {
             DragState::SidebarResize { start_x, start_w } => {
                 let delta = self.mouse_x - start_x;
@@ -1069,13 +1067,36 @@ impl InputHandler {
                 let cw = char_w.max(1);
                 let input_h: usize = 24;
                 let input_y = bar_y + 6;
+                let bottom_row_y = if tabs.find.is_replace {
+                    bar_y + 36
+                } else {
+                    bar_y + 6
+                };
                 let close_w = "Close".len() * cw + 16;
-                let close_btn_x = (layout.content_left + bar_w).saturating_sub(close_w + 8);
+                let close_btn_x = (layout.content_left + bar_w).saturating_sub(close_w + 6);
+
+                let now = std::time::Instant::now();
+                let is_multi = if let Some(last_time) = self.last_click_time {
+                    let elapsed = now.duration_since(last_time);
+                    let dx = self.mouse_x - self.last_click_pos.0;
+                    let dy = self.mouse_y - self.last_click_pos.1;
+                    elapsed.as_millis() <= 500 && (dx * dx + dy * dy) <= 36.0
+                } else {
+                    false
+                };
+
+                if is_multi {
+                    self.click_count = (self.click_count % 3) + 1;
+                } else {
+                    self.click_count = 1;
+                }
+                self.last_click_time = Some(now);
+                self.last_click_pos = (self.mouse_x, self.mouse_y);
 
                 if mx >= close_btn_x
                     && mx < close_btn_x + close_w
-                    && my >= input_y
-                    && my < input_y + input_h
+                    && my >= bottom_row_y
+                    && my < bottom_row_y + input_h
                 {
                     tabs.find.close();
                     return ActionEvent::Redraw;
@@ -1083,30 +1104,29 @@ impl InputHandler {
 
                 let strip_min_x = layout.content_left;
                 let strip_max_x = close_btn_x.saturating_sub(6);
-                let mut cur_x = (strip_min_x as i32 + 8) - tabs.find.scroll_x as i32;
 
                 let toggle_label = if tabs.find.is_replace { "[-]" } else { "[+]" };
                 let toggle_w = (toggle_label.len() * cw + 6) as i32;
+                let toggle_x = strip_min_x as i32 + 6;
+
                 let mx_i = mx as i32;
 
-                if my >= input_y && my < input_y + input_h {
-                    if mx_i >= cur_x
-                        && mx_i < cur_x + toggle_w
-                        && mx >= strip_min_x
-                        && mx < strip_max_x
-                    {
+                if my >= bottom_row_y && my < bottom_row_y + input_h {
+                    if mx_i >= toggle_x && mx_i < toggle_x + toggle_w {
                         tabs.find.is_replace = !tabs.find.is_replace;
                         return ActionEvent::Redraw;
                     }
                 }
 
-                cur_x += toggle_w + 6;
+                let scrollable_min_x = toggle_x as usize + toggle_w as usize + 6;
+                let mut cur_x = scrollable_min_x as i32 - tabs.find.scroll_x as i32;
+
                 let find_input_w: usize = 240;
 
                 if my >= input_y && my < input_y + input_h {
                     if mx_i >= cur_x
                         && mx_i < cur_x + find_input_w as i32
-                        && mx >= strip_min_x
+                        && mx >= scrollable_min_x
                         && mx < strip_max_x
                     {
                         tabs.find.active_field = FindField::Find;
@@ -1121,25 +1141,30 @@ impl InputHandler {
                             0
                         };
                         tabs.find.query_cursor = (scroll_offset + char_offset).min(q_len);
+                        tabs.find.query_selection_anchor = Some(tabs.find.query_cursor);
+
+                        match self.click_count {
+                            2 => tabs.find.select_word(),
+                            3 => tabs.find.select_all(),
+                            _ => {}
+                        }
                         return ActionEvent::Redraw;
                     }
                 }
 
-                cur_x += find_input_w as i32 + 8;
-                let counter_str = tabs.find.counter_text();
-                if !counter_str.is_empty() {
-                    let counter_w = (counter_str.len() * cw + 12) as i32;
-                    cur_x += counter_w + 8;
-                }
-
+                cur_x += find_input_w as i32 + 6;
                 let mc_w = ("Match Case".len() * cw + 16) as i32;
                 let ww_w = ("Whole Word".len() * cw + 16) as i32;
                 let re_w = ("Regex".len() * cw + 16) as i32;
                 let prev_w = ("Previous".len() * cw + 16) as i32;
                 let next_w = ("Next".len() * cw + 16) as i32;
+                let has_matches = !tabs.find.matches.is_empty();
 
                 if my >= input_y && my < input_y + input_h {
-                    if mx_i >= cur_x && mx_i < cur_x + mc_w && mx >= strip_min_x && mx < strip_max_x
+                    if mx_i >= cur_x
+                        && mx_i < cur_x + mc_w
+                        && mx >= scrollable_min_x
+                        && mx < strip_max_x
                     {
                         tabs.find.match_case = !tabs.find.match_case;
                         if let Some(idx) = tabs.active_idx {
@@ -1154,8 +1179,11 @@ impl InputHandler {
                         }
                         return ActionEvent::Redraw;
                     }
-                    cur_x += mc_w + 5;
-                    if mx_i >= cur_x && mx_i < cur_x + ww_w && mx >= strip_min_x && mx < strip_max_x
+                    cur_x += mc_w + 6;
+                    if mx_i >= cur_x
+                        && mx_i < cur_x + ww_w
+                        && mx >= scrollable_min_x
+                        && mx < strip_max_x
                     {
                         tabs.find.whole_word = !tabs.find.whole_word;
                         if let Some(idx) = tabs.active_idx {
@@ -1170,8 +1198,11 @@ impl InputHandler {
                         }
                         return ActionEvent::Redraw;
                     }
-                    cur_x += ww_w + 5;
-                    if mx_i >= cur_x && mx_i < cur_x + re_w && mx >= strip_min_x && mx < strip_max_x
+                    cur_x += ww_w + 6;
+                    if mx_i >= cur_x
+                        && mx_i < cur_x + re_w
+                        && mx >= scrollable_min_x
+                        && mx < strip_max_x
                     {
                         tabs.find.use_regex = !tabs.find.use_regex;
                         if let Some(idx) = tabs.active_idx {
@@ -1186,36 +1217,40 @@ impl InputHandler {
                         }
                         return ActionEvent::Redraw;
                     }
-                    cur_x += re_w + 8;
+                    cur_x += re_w + 6;
                     if mx_i >= cur_x
                         && mx_i < cur_x + prev_w
-                        && mx >= strip_min_x
+                        && mx >= scrollable_min_x
                         && mx < strip_max_x
                     {
-                        if let Some(idx) = tabs.active_idx {
-                            if let Some(active_tab) = tabs.tabs.get_mut(idx) {
-                                tabs.find.prev_match(
-                                    &mut active_tab.buffer,
-                                    layout.visible_lines,
-                                    layout.visible_cols,
-                                );
+                        if has_matches {
+                            if let Some(idx) = tabs.active_idx {
+                                if let Some(active_tab) = tabs.tabs.get_mut(idx) {
+                                    tabs.find.prev_match(
+                                        &mut active_tab.buffer,
+                                        layout.visible_lines,
+                                        layout.visible_cols,
+                                    );
+                                }
                             }
                         }
                         return ActionEvent::Redraw;
                     }
-                    cur_x += prev_w + 5;
+                    cur_x += prev_w + 6;
                     if mx_i >= cur_x
                         && mx_i < cur_x + next_w
-                        && mx >= strip_min_x
+                        && mx >= scrollable_min_x
                         && mx < strip_max_x
                     {
-                        if let Some(idx) = tabs.active_idx {
-                            if let Some(active_tab) = tabs.tabs.get_mut(idx) {
-                                tabs.find.next_match(
-                                    &mut active_tab.buffer,
-                                    layout.visible_lines,
-                                    layout.visible_cols,
-                                );
+                        if has_matches {
+                            if let Some(idx) = tabs.active_idx {
+                                if let Some(active_tab) = tabs.tabs.get_mut(idx) {
+                                    tabs.find.next_match(
+                                        &mut active_tab.buffer,
+                                        layout.visible_lines,
+                                        layout.visible_cols,
+                                    );
+                                }
                             }
                         }
                         return ActionEvent::Redraw;
@@ -1223,15 +1258,14 @@ impl InputHandler {
                 }
 
                 if tabs.find.is_replace {
-                    let rep_y = bar_y + 36;
-                    let mut r_cur_x =
-                        (strip_min_x as i32 + 8 + toggle_w + 6) - tabs.find.scroll_x as i32;
+                    let rep_input_y = bottom_row_y;
+                    let mut r_cur_x = scrollable_min_x as i32 - tabs.find.scroll_x as i32;
                     let rep_input_w: usize = 240;
 
-                    if my >= rep_y && my < rep_y + input_h {
+                    if my >= rep_input_y && my < rep_input_y + input_h {
                         if mx_i >= r_cur_x
                             && mx_i < r_cur_x + rep_input_w as i32
-                            && mx >= strip_min_x
+                            && mx >= scrollable_min_x
                             && mx < strip_max_x
                         {
                             tabs.find.active_field = FindField::Replace;
@@ -1246,27 +1280,37 @@ impl InputHandler {
                                 0
                             };
                             tabs.find.replace_cursor = (scroll_offset + char_offset).min(r_len);
+                            tabs.find.replace_selection_anchor = Some(tabs.find.replace_cursor);
+
+                            match self.click_count {
+                                2 => tabs.find.select_word(),
+                                3 => tabs.find.select_all(),
+                                _ => {}
+                            }
+
                             return ActionEvent::Redraw;
                         }
                     }
 
-                    r_cur_x += rep_input_w as i32 + 8;
+                    r_cur_x += rep_input_w as i32 + 6;
                     let rep_w = ("Replace".len() * cw + 16) as i32;
                     let all_w = ("Replace All".len() * cw + 16) as i32;
 
-                    if my >= rep_y && my < rep_y + input_h {
+                    if my >= rep_input_y && my < rep_input_y + input_h {
                         if mx_i >= r_cur_x
                             && mx_i < r_cur_x + rep_w
-                            && mx >= strip_min_x
+                            && mx >= scrollable_min_x
                             && mx < strip_max_x
                         {
-                            if let Some(idx) = tabs.active_idx {
-                                if let Some(active_tab) = tabs.tabs.get_mut(idx) {
-                                    tabs.find.replace_current(
-                                        &mut active_tab.buffer,
-                                        layout.visible_lines,
-                                        layout.visible_cols,
-                                    );
+                            if has_matches {
+                                if let Some(idx) = tabs.active_idx {
+                                    if let Some(active_tab) = tabs.tabs.get_mut(idx) {
+                                        tabs.find.replace_current(
+                                            &mut active_tab.buffer,
+                                            layout.visible_lines,
+                                            layout.visible_cols,
+                                        );
+                                    }
                                 }
                             }
                             return ActionEvent::Redraw;
@@ -1274,16 +1318,18 @@ impl InputHandler {
                         r_cur_x += rep_w + 6;
                         if mx_i >= r_cur_x
                             && mx_i < r_cur_x + all_w
-                            && mx >= strip_min_x
+                            && mx >= scrollable_min_x
                             && mx < strip_max_x
                         {
-                            if let Some(idx) = tabs.active_idx {
-                                if let Some(active_tab) = tabs.tabs.get_mut(idx) {
-                                    tabs.find.replace_all(
-                                        &mut active_tab.buffer,
-                                        layout.visible_lines,
-                                        layout.visible_cols,
-                                    );
+                            if has_matches {
+                                if let Some(idx) = tabs.active_idx {
+                                    if let Some(active_tab) = tabs.tabs.get_mut(idx) {
+                                        tabs.find.replace_all(
+                                            &mut active_tab.buffer,
+                                            layout.visible_lines,
+                                            layout.visible_cols,
+                                        );
+                                    }
                                 }
                             }
                             return ActionEvent::Redraw;
@@ -1534,7 +1580,10 @@ impl InputHandler {
             let bar_y = layout.content_bottom + SCROLLBAR_THICKNESS;
             if my >= bar_y && my < bar_y + bar_h && mx >= layout.content_left {
                 let close_w = "Close".len() * char_w + 16;
-                let available_w = screen_w.saturating_sub(layout.content_left + close_w + 14);
+                let toggle_label = if tabs.find.is_replace { "[-]" } else { "[+]" };
+                let toggle_w = toggle_label.len() * char_w + 6;
+                let fixed_w = 6 + toggle_w + 6 + close_w + 6;
+                let available_w = screen_w.saturating_sub(layout.content_left + fixed_w);
                 let scroll_delta = if cols != 0 { -cols } else { -lines };
                 let scroll_amount = scroll_delta * (char_w as i32 * 3);
                 let total_w = tabs.find.total_content_width(char_w);
