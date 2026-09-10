@@ -746,10 +746,14 @@ impl InputHandler {
         self.is_left_down = true;
         let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
 
+        let is_find_bar = tabs.find.is_open
+            && my >= layout.content_bottom + SCROLLBAR_THICKNESS
+            && mx >= layout.content_left;
+
         if my < TAB_BAR_HEIGHT
             || mx < layout.content_left
-            || mx >= layout.content_right
-            || my >= layout.content_bottom
+            || (mx >= layout.content_right && !is_find_bar)
+            || (my >= layout.content_bottom && !is_find_bar)
         {
             self.last_click_time = None;
             self.click_count = 0;
