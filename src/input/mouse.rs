@@ -265,20 +265,6 @@ impl InputHandler {
         if !self.is_left_down && self.drag != DragState::None {
             self.drag = DragState::None;
         }
-        if let Some(menu) = self.context_menu {
-            return if menu.hovered_idx.is_some() {
-                CursorIcon::Pointer
-            } else {
-                CursorIcon::Default
-            };
-        }
-        if tabs.closing_app || tabs.closing_files || tabs.pending_close.is_some() {
-            return if tabs.hovered_modal_btn.is_some() {
-                CursorIcon::Pointer
-            } else {
-                CursorIcon::Default
-            };
-        }
         if matches!(self.drag, DragState::SidebarResize { .. }) {
             return CursorIcon::ColResize;
         }
@@ -294,6 +280,20 @@ impl InputHandler {
         }
         if self.drag != DragState::None {
             return CursorIcon::Default;
+        }
+        if let Some(menu) = self.context_menu {
+            return if menu.hovered_idx.is_some() {
+                CursorIcon::Pointer
+            } else {
+                CursorIcon::Default
+            };
+        }
+        if tabs.closing_app || tabs.closing_files || tabs.pending_close.is_some() {
+            return if tabs.hovered_modal_btn.is_some() {
+                CursorIcon::Pointer
+            } else {
+                CursorIcon::Default
+            };
         }
         let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
         if sidebar.visible && (mx as i32 - sidebar.width as i32).abs() <= 4 {
@@ -449,7 +449,9 @@ impl InputHandler {
     ) -> bool {
         self.mouse_x = x;
         self.mouse_y = y;
-        let (mx, my) = (x as usize, y as usize);
+        let mx = x.max(0.0) as usize;
+        let my = y.max(0.0) as usize;
+
         if !self.is_left_down && self.drag != DragState::None {
             self.drag = DragState::None;
         }
@@ -485,6 +487,8 @@ impl InputHandler {
             }
             return prev != tabs.hovered_modal_btn;
         }
+
+        let is_dragging = self.drag != DragState::None;
         let prev_sh = sidebar.hovered_menu_header;
         let prev_sitem = sidebar.hovered_menu_item;
         let prev_sterm = sidebar.hovered_terminal_header;
@@ -507,17 +511,19 @@ impl InputHandler {
 
         let (find_y, qo_y) = compute_bottom_bars_y(tabs, layout);
 
-        update_terminal_tab_hover(
-            terminal,
-            mx,
-            my,
-            layout.content_left,
-            screen_w,
-            screen_h,
-            char_w,
-        );
-        update_find_hover(tabs, layout, screen_w, char_w, mx, my, find_y);
-        update_quick_open_hover(tabs, layout, screen_w, char_w, mx, my, qo_y);
+        if !is_dragging {
+            update_terminal_tab_hover(
+                terminal,
+                mx,
+                my,
+                layout.content_left,
+                screen_w,
+                screen_h,
+                char_w,
+            );
+            update_find_hover(tabs, layout, screen_w, char_w, mx, my, find_y);
+            update_quick_open_hover(tabs, layout, screen_w, char_w, mx, my, qo_y);
+        }
 
         let total_sidebar_h = sidebar.total_content_height();
         let has_sidebar_scroll = total_sidebar_h > screen_h;
@@ -527,45 +533,47 @@ impl InputHandler {
             .map(|t| t.buffer.is_modified)
             .unwrap_or(false);
         let has_folder = sidebar.root_folder.is_some();
-        if sidebar.visible && mx < sidebar.width {
-            tabs.hovered_tab = None;
-            tabs.hovered_close = None;
-            if !(has_sidebar_scroll && mx >= bar_x) {
-                let content_y = my as i32 + sidebar.scroll_y as i32;
-                if content_y >= 0 {
-                    let cy = content_y as usize;
-                    let menu_total_h = sidebar.menu_total_height();
-                    if cy < TAB_BAR_HEIGHT {
-                        sidebar.hovered_menu_header = true;
-                    } else if sidebar.menu_expanded && cy < menu_total_h {
-                        let item_idx = (cy - TAB_BAR_HEIGHT) / SIDEBAR_ROW_HEIGHT;
-                        let items = sidebar.menu_items();
-                        if item_idx < items.len() {
-                            let item = items[item_idx].0;
-                            let is_disabled = (item == MenuItem::Save && !can_save)
-                                || (item == MenuItem::CloseFolder && !has_folder);
-                            if !is_disabled {
-                                sidebar.hovered_menu_item = Some(item);
+        if !is_dragging {
+            if sidebar.visible && mx < sidebar.width {
+                tabs.hovered_tab = None;
+                tabs.hovered_close = None;
+                if !(has_sidebar_scroll && mx >= bar_x) {
+                    let content_y = my as i32 + sidebar.scroll_y as i32;
+                    if content_y >= 0 {
+                        let cy = content_y as usize;
+                        let menu_total_h = sidebar.menu_total_height();
+                        if cy < TAB_BAR_HEIGHT {
+                            sidebar.hovered_menu_header = true;
+                        } else if sidebar.menu_expanded && cy < menu_total_h {
+                            let item_idx = (cy - TAB_BAR_HEIGHT) / SIDEBAR_ROW_HEIGHT;
+                            let items = sidebar.menu_items();
+                            if item_idx < items.len() {
+                                let item = items[item_idx].0;
+                                let is_disabled = (item == MenuItem::Save && !can_save)
+                                    || (item == MenuItem::CloseFolder && !has_folder);
+                                if !is_disabled {
+                                    sidebar.hovered_menu_item = Some(item);
+                                }
                             }
-                        }
-                    } else if cy >= menu_total_h && cy < menu_total_h + TAB_BAR_HEIGHT {
-                        sidebar.hovered_terminal_header = true;
-                    } else if has_folder && cy >= menu_total_h + TAB_BAR_HEIGHT {
-                        let rel_y = cy - (menu_total_h + TAB_BAR_HEIGHT);
-                        if rel_y < TAB_BAR_HEIGHT {
-                            sidebar.hovered_root_header = true;
-                        } else if sidebar.root_expanded {
-                            let tree_y = rel_y - TAB_BAR_HEIGHT;
-                            let node_idx = tree_y / SIDEBAR_ROW_HEIGHT;
-                            if node_idx < sidebar.nodes.len() {
-                                sidebar.hovered_tree_row = Some(node_idx);
+                        } else if cy >= menu_total_h && cy < menu_total_h + TAB_BAR_HEIGHT {
+                            sidebar.hovered_terminal_header = true;
+                        } else if has_folder && cy >= menu_total_h + TAB_BAR_HEIGHT {
+                            let rel_y = cy - (menu_total_h + TAB_BAR_HEIGHT);
+                            if rel_y < TAB_BAR_HEIGHT {
+                                sidebar.hovered_root_header = true;
+                            } else if sidebar.root_expanded {
+                                let tree_y = rel_y - TAB_BAR_HEIGHT;
+                                let node_idx = tree_y / SIDEBAR_ROW_HEIGHT;
+                                if node_idx < sidebar.nodes.len() {
+                                    sidebar.hovered_tree_row = Some(node_idx);
+                                }
                             }
                         }
                     }
                 }
+            } else {
+                self.update_tab_hover(tabs, layout, char_w);
             }
-        } else {
-            self.update_tab_hover(tabs, layout, char_w);
         }
 
         let mut changed = prev_sh != sidebar.hovered_menu_header
@@ -632,10 +640,10 @@ impl InputHandler {
                 if let Some(tab) = terminal.active_tab_mut() {
                     let total_l = tab.total_lines();
                     let line_idx = (tab.scroll_line + row).min(total_l.saturating_sub(1));
-                    let col = if (mx as i32) <= (text_left as i32) {
+                    let col = if (self.mouse_x as i32) <= (text_left as i32) {
                         0
                     } else {
-                        let rel_x = mx - text_left;
+                        let rel_x = mx.saturating_sub(text_left);
                         rel_x / char_w.max(1)
                     };
                     let line_len = tab.get_row(line_idx).map(|r| r.cells.len()).unwrap_or(0);
@@ -693,13 +701,52 @@ impl InputHandler {
                 if let Some(active_tab) = tabs.active_tab_mut() {
                     let active_buf = &mut active_tab.buffer;
                     if line_h > 0 && char_w > 0 {
-                        let row = my.saturating_sub(TAB_BAR_HEIGHT + TOP_PADDING) / line_h;
-                        let target_line = active_buf.scroll_line + row;
-                        let target_col = if mx >= layout.code_x {
-                            active_buf.scroll_col + (mx - layout.code_x) / char_w
+                        let top_y = (TAB_BAR_HEIGHT + TOP_PADDING) as f64;
+                        let bottom_y = layout.content_bottom as f64;
+                        let left_x = layout.code_x as f64;
+                        let right_x = layout.content_right as f64;
+
+                        if self.mouse_y < top_y {
+                            let lines_above =
+                                ((top_y - self.mouse_y) / line_h as f64).ceil() as usize;
+                            active_buf.scroll_line =
+                                active_buf.scroll_line.saturating_sub(lines_above.max(1));
+                        } else if self.mouse_y > bottom_y {
+                            let lines_below =
+                                ((self.mouse_y - bottom_y) / line_h as f64).ceil() as usize;
+                            let max_scroll = active_buf.text().len_lines().saturating_sub(1);
+                            active_buf.scroll_line =
+                                (active_buf.scroll_line + lines_below.max(1)).min(max_scroll);
+                        }
+
+                        if self.mouse_x < left_x {
+                            let cols_left =
+                                ((left_x - self.mouse_x) / char_w as f64).ceil() as usize;
+                            active_buf.scroll_col =
+                                active_buf.scroll_col.saturating_sub(cols_left.max(1));
+                        } else if self.mouse_x > right_x {
+                            let cols_right =
+                                ((self.mouse_x - right_x) / char_w as f64).ceil() as usize;
+                            let max_col_scroll =
+                                active_buf.max_line_len.saturating_sub(layout.visible_cols);
+                            active_buf.scroll_col =
+                                (active_buf.scroll_col + cols_right.max(1)).min(max_col_scroll);
+                        }
+
+                        let target_line = if self.mouse_y < top_y {
+                            active_buf.scroll_line
                         } else {
-                            0
+                            let row = ((self.mouse_y - top_y) as usize) / line_h;
+                            active_buf.scroll_line + row
                         };
+
+                        let target_col = if self.mouse_x < left_x {
+                            active_buf.scroll_col
+                        } else {
+                            let col = ((self.mouse_x - left_x) as usize) / char_w;
+                            active_buf.scroll_col + col
+                        };
+
                         active_buf.set_cursor_at(target_line, target_col);
                         active_buf.fit_view(layout.visible_lines, layout.visible_cols);
                         changed = true;
@@ -766,23 +813,43 @@ impl InputHandler {
                 let input_x = bar_x + 6;
                 let input_w = close_btn_x.saturating_sub(input_x + 6);
                 let padding = 6;
-                let click_offset = (mx as i32 - input_x as i32 - padding as i32).max(0) as usize;
-                let char_offset = click_offset / cw;
+                let input_left_x = (input_x + padding) as f64;
+                let input_right_x = (input_x + input_w.saturating_sub(padding)) as f64;
                 let max_vis_chars = if cw > 0 {
                     input_w.saturating_sub(padding * 2) / cw
                 } else {
                     10
                 };
                 let q_len = tabs.quick_open.query.chars().count();
-                let scroll_offset = tabs
-                    .quick_open
-                    .query_scroll
-                    .min(q_len.saturating_sub(max_vis_chars));
-                let new_cur = (scroll_offset + char_offset).min(q_len);
-                if tabs.quick_open.cursor != new_cur {
-                    tabs.quick_open.cursor = new_cur;
-                    tabs.quick_open.ensure_query_visible(max_vis_chars);
+
+                if self.mouse_x < input_left_x {
+                    if tabs.quick_open.query_scroll > 0 {
+                        tabs.quick_open.query_scroll =
+                            tabs.quick_open.query_scroll.saturating_sub(1);
+                    }
+                    tabs.quick_open.cursor = tabs.quick_open.query_scroll;
                     changed = true;
+                } else if self.mouse_x > input_right_x {
+                    let max_scroll = q_len.saturating_sub(max_vis_chars);
+                    if tabs.quick_open.query_scroll < max_scroll {
+                        tabs.quick_open.query_scroll =
+                            (tabs.quick_open.query_scroll + 1).min(max_scroll);
+                    }
+                    tabs.quick_open.cursor =
+                        (tabs.quick_open.query_scroll + max_vis_chars).min(q_len);
+                    changed = true;
+                } else {
+                    let char_offset = ((self.mouse_x - input_left_x) as usize) / cw;
+                    let scroll_offset = tabs
+                        .quick_open
+                        .query_scroll
+                        .min(q_len.saturating_sub(max_vis_chars));
+                    let new_cur = (scroll_offset + char_offset).min(q_len);
+                    if tabs.quick_open.cursor != new_cur {
+                        tabs.quick_open.cursor = new_cur;
+                        tabs.quick_open.ensure_query_visible(max_vis_chars);
+                        changed = true;
+                    }
                 }
             }
             DragState::FindSelecting => {
@@ -799,37 +866,71 @@ impl InputHandler {
                 let toggle_x = layout.content_left as i32 + 6;
                 let scrollable_min_x = toggle_x as usize + toggle_w as usize + 6;
                 let cur_x = scrollable_min_x as i32 - tabs.find.scroll_x as i32;
-                let mx_i = mx as i32;
+                let input_left_x = (cur_x + padding as i32) as f64;
+                let input_right_x = (cur_x + find_input_w as i32 - padding as i32) as f64;
 
                 match tabs.find.active_field {
                     FindField::Find => {
-                        let click_offset = (mx_i - cur_x - padding as i32).max(0) as usize;
-                        let char_offset = click_offset / cw;
                         let q_len = tabs.find.query.chars().count();
-                        let scroll_offset = tabs
-                            .find
-                            .query_scroll
-                            .min(q_len.saturating_sub(max_vis_chars));
-                        let new_cur = (scroll_offset + char_offset).min(q_len);
-                        if tabs.find.query_cursor != new_cur {
-                            tabs.find.query_cursor = new_cur;
-                            tabs.find.ensure_query_visible(max_vis_chars);
+                        if self.mouse_x < input_left_x {
+                            if tabs.find.query_scroll > 0 {
+                                tabs.find.query_scroll = tabs.find.query_scroll.saturating_sub(1);
+                            }
+                            tabs.find.query_cursor = tabs.find.query_scroll;
                             changed = true;
+                        } else if self.mouse_x > input_right_x {
+                            let max_scroll = q_len.saturating_sub(max_vis_chars);
+                            if tabs.find.query_scroll < max_scroll {
+                                tabs.find.query_scroll =
+                                    (tabs.find.query_scroll + 1).min(max_scroll);
+                            }
+                            tabs.find.query_cursor =
+                                (tabs.find.query_scroll + max_vis_chars).min(q_len);
+                            changed = true;
+                        } else {
+                            let char_offset = ((self.mouse_x - input_left_x) as usize) / cw;
+                            let scroll_offset = tabs
+                                .find
+                                .query_scroll
+                                .min(q_len.saturating_sub(max_vis_chars));
+                            let new_cur = (scroll_offset + char_offset).min(q_len);
+                            if tabs.find.query_cursor != new_cur {
+                                tabs.find.query_cursor = new_cur;
+                                tabs.find.ensure_query_visible(max_vis_chars);
+                                changed = true;
+                            }
                         }
                     }
                     FindField::Replace => {
-                        let click_offset = (mx_i - cur_x - padding as i32).max(0) as usize;
-                        let char_offset = click_offset / cw;
                         let r_len = tabs.find.replace_text.chars().count();
-                        let scroll_offset = tabs
-                            .find
-                            .replace_scroll
-                            .min(r_len.saturating_sub(max_vis_chars));
-                        let new_cur = (scroll_offset + char_offset).min(r_len);
-                        if tabs.find.replace_cursor != new_cur {
-                            tabs.find.replace_cursor = new_cur;
-                            tabs.find.ensure_replace_visible(max_vis_chars);
+                        if self.mouse_x < input_left_x {
+                            if tabs.find.replace_scroll > 0 {
+                                tabs.find.replace_scroll =
+                                    tabs.find.replace_scroll.saturating_sub(1);
+                            }
+                            tabs.find.replace_cursor = tabs.find.replace_scroll;
                             changed = true;
+                        } else if self.mouse_x > input_right_x {
+                            let max_scroll = r_len.saturating_sub(max_vis_chars);
+                            if tabs.find.replace_scroll < max_scroll {
+                                tabs.find.replace_scroll =
+                                    (tabs.find.replace_scroll + 1).min(max_scroll);
+                            }
+                            tabs.find.replace_cursor =
+                                (tabs.find.replace_scroll + max_vis_chars).min(r_len);
+                            changed = true;
+                        } else {
+                            let char_offset = ((self.mouse_x - input_left_x) as usize) / cw;
+                            let scroll_offset = tabs
+                                .find
+                                .replace_scroll
+                                .min(r_len.saturating_sub(max_vis_chars));
+                            let new_cur = (scroll_offset + char_offset).min(r_len);
+                            if tabs.find.replace_cursor != new_cur {
+                                tabs.find.replace_cursor = new_cur;
+                                tabs.find.ensure_replace_visible(max_vis_chars);
+                                changed = true;
+                            }
                         }
                     }
                 }
@@ -919,7 +1020,8 @@ impl InputHandler {
             };
         }
         self.is_left_down = true;
-        let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
+        let mx = self.mouse_x.max(0.0) as usize;
+        let my = self.mouse_y.max(0.0) as usize;
 
         let (find_y, qo_y) = compute_bottom_bars_y(tabs, layout);
         let find_h = if tabs.find.is_open {
@@ -1108,7 +1210,7 @@ impl InputHandler {
                 let row = my.saturating_sub(shell_y + 4) / line_h.max(1);
                 if let Some(tab) = terminal.active_tab_mut() {
                     let line_idx = tab.scroll_line + row;
-                    let col = if (mx as i32) < (text_left as i32) {
+                    let col = if (self.mouse_x as i32) < (text_left as i32) {
                         0
                     } else {
                         (mx - text_left) / char_w.max(1)
@@ -1783,7 +1885,8 @@ impl InputHandler {
                 (l, c)
             }
         };
-        let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
+        let mx = self.mouse_x.max(0.0) as usize;
+        let my = self.mouse_y.max(0.0) as usize;
         if sidebar.visible && mx < sidebar.width {
             let total_h = sidebar.total_content_height();
             if total_h > screen_h {

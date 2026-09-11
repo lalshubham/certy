@@ -1023,10 +1023,7 @@ impl ApplicationHandler<AppEvent> for App {
                     window.request_redraw();
                 }
             }
-            WindowEvent::CursorLeft { .. } => {
-                self.input.drag = input::DragState::None;
-                self.input.is_left_down = false;
-            }
+            WindowEvent::CursorLeft { .. } => {}
             WindowEvent::MouseWheel { delta, .. } => {
                 if self.input.handle_mouse_wheel(
                     delta,
