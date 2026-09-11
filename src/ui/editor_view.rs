@@ -1,5 +1,6 @@
 use super::canvas::{
     draw_close_icon_clipped, draw_solid_rect, draw_solid_rect_clipped, draw_string_clipped,
+    draw_string_ellipsis,
 };
 use super::font::FontManager;
 use crate::config::*;
@@ -137,218 +138,242 @@ pub fn render_editor_buffer(
     screen_w: usize,
     screen_h: usize,
 ) {
-    let tab = match tabs.active_tab() {
-        Some(t) => t,
-        None => return,
-    };
-    let cw = fonts.char_width;
-    let lh = fonts.line_height;
-    let buffer = &tab.buffer;
-    let (cur_line, cur_col) = buffer.cursor_pos();
-    let sel_range = buffer.selection_range();
-    let gutter_x = layout.content_left;
-    let gutter_h = layout.content_bottom.saturating_sub(TAB_BAR_HEIGHT) + SCROLLBAR_THICKNESS;
-    draw_solid_rect(
-        frame,
-        screen_w,
-        screen_h,
-        gutter_x,
-        TAB_BAR_HEIGHT,
-        layout.gutter_width,
-        gutter_h,
-        COLOR_GUTTER_BACKGROUND,
-    );
-    draw_solid_rect(
-        frame,
-        screen_w,
-        screen_h,
-        gutter_x + layout.gutter_width,
-        TAB_BAR_HEIGHT,
-        1,
-        gutter_h,
-        COLOR_GUTTER_SEPARATOR,
-    );
-    let language = Language::from_path(buffer.file_path.as_deref());
-    let mut in_comment_state =
-        syntax::compute_initial_comment_state(buffer.text(), buffer.scroll_line, language);
-    let digits = if total_lines == 0 {
-        1
-    } else {
-        (total_lines.ilog10() + 1) as usize
-    }
-    .max(3);
-
-    let mut line_chars = Vec::with_capacity(128);
-
-    for row in 0..=layout.visible_lines {
-        let line_idx = buffer.scroll_line + row;
-        if line_idx >= total_lines {
-            break;
-        }
-        let y = TAB_BAR_HEIGHT + TOP_PADDING + row * lh;
-        if y + lh > layout.content_bottom {
-            break;
-        }
-        let num_str = format!("{:>width$}", line_idx + 1, width = digits);
-        let num_color = if line_idx == cur_line {
-            COLOR_LINE_NUMBER_ACTIVE
+    if let Some(tab) = tabs.active_tab() {
+        let cw = fonts.char_width;
+        let lh = fonts.line_height;
+        let buffer = &tab.buffer;
+        let (cur_line, cur_col) = buffer.cursor_pos();
+        let sel_range = buffer.selection_range();
+        let gutter_x = layout.content_left;
+        let gutter_h = layout.content_bottom.saturating_sub(TAB_BAR_HEIGHT) + SCROLLBAR_THICKNESS;
+        draw_solid_rect(
+            frame,
+            screen_w,
+            screen_h,
+            gutter_x,
+            TAB_BAR_HEIGHT,
+            layout.gutter_width,
+            gutter_h,
+            COLOR_GUTTER_BACKGROUND,
+        );
+        draw_solid_rect(
+            frame,
+            screen_w,
+            screen_h,
+            gutter_x + layout.gutter_width,
+            TAB_BAR_HEIGHT,
+            1,
+            gutter_h,
+            COLOR_GUTTER_SEPARATOR,
+        );
+        let language = Language::from_path(buffer.file_path.as_deref());
+        let mut in_comment_state =
+            syntax::compute_initial_comment_state(buffer.text(), buffer.scroll_line, language);
+        let digits = if total_lines == 0 {
+            1
         } else {
-            COLOR_LINE_NUMBER_MUTED
-        };
-        let mut nx = gutter_x + GUTTER_PADDING;
-        for ch in num_str.chars() {
-            fonts.draw_char(
-                frame, ch, nx as i32, y as i32, screen_w, screen_h, num_color,
-            );
-            nx += cw;
+            (total_lines.ilog10() + 1) as usize
         }
-        let line = buffer.text().line(line_idx);
-        let line_start_char = buffer.text().line_to_char(line_idx);
-        line_chars.clear();
-        line_chars.extend(line.chars().take_while(|&c| c != '\n' && c != '\r'));
+        .max(3);
 
-        let (syntax_colors, next_comment_state) =
-            syntax::highlight_line(&line_chars, language, in_comment_state, COLOR_TEXT_DEFAULT);
-        in_comment_state = next_comment_state;
-        for (col_idx, &ch) in line_chars.iter().enumerate() {
-            if col_idx < buffer.scroll_col {
-                continue;
-            }
-            let text_x = layout.code_x + (col_idx - buffer.scroll_col) * cw;
-            if text_x + cw > layout.content_right {
+        let mut line_chars = Vec::with_capacity(128);
+
+        for row in 0..=layout.visible_lines {
+            let line_idx = buffer.scroll_line + row;
+            if line_idx >= total_lines {
                 break;
             }
-            let char_idx = line_start_char + col_idx;
-            if let Some((start, end)) = sel_range {
-                if char_idx >= start && char_idx < end {
-                    draw_solid_rect(
-                        frame,
-                        screen_w,
-                        screen_h,
-                        text_x,
-                        y,
-                        cw,
-                        lh,
-                        COLOR_SELECTION,
-                    );
-                }
+            let y = TAB_BAR_HEIGHT + TOP_PADDING + row * lh;
+            if y + lh > layout.content_bottom {
+                break;
             }
-            if tabs.find.is_open && !tabs.find.matches.is_empty() {
-                for (m_idx, &(m_start, m_end)) in tabs.find.matches.iter().enumerate() {
-                    if char_idx >= m_start && char_idx < m_end {
-                        let color = if tabs.find.active_match_idx == Some(m_idx) {
-                            COLOR_FIND_ACTIVE
-                        } else {
-                            COLOR_FIND_MATCH
-                        };
-                        draw_solid_rect(frame, screen_w, screen_h, text_x, y, cw, lh, color);
-                        break;
+            let num_str = format!("{:>width$}", line_idx + 1, width = digits);
+            let num_color = if line_idx == cur_line {
+                COLOR_LINE_NUMBER_ACTIVE
+            } else {
+                COLOR_LINE_NUMBER_MUTED
+            };
+            let mut nx = gutter_x + GUTTER_PADDING;
+            for ch in num_str.chars() {
+                fonts.draw_char(
+                    frame, ch, nx as i32, y as i32, screen_w, screen_h, num_color,
+                );
+                nx += cw;
+            }
+            let line = buffer.text().line(line_idx);
+            let line_start_char = buffer.text().line_to_char(line_idx);
+            line_chars.clear();
+            line_chars.extend(line.chars().take_while(|&c| c != '\n' && c != '\r'));
+
+            let (syntax_colors, next_comment_state) =
+                syntax::highlight_line(&line_chars, language, in_comment_state, COLOR_TEXT_DEFAULT);
+            in_comment_state = next_comment_state;
+            for (col_idx, &ch) in line_chars.iter().enumerate() {
+                if col_idx < buffer.scroll_col {
+                    continue;
+                }
+                let text_x = layout.code_x + (col_idx - buffer.scroll_col) * cw;
+                if text_x + cw > layout.content_right {
+                    break;
+                }
+                let char_idx = line_start_char + col_idx;
+                if let Some((start, end)) = sel_range {
+                    if char_idx >= start && char_idx < end {
+                        draw_solid_rect(
+                            frame,
+                            screen_w,
+                            screen_h,
+                            text_x,
+                            y,
+                            cw,
+                            lh,
+                            COLOR_SELECTION,
+                        );
                     }
                 }
+                if tabs.find.is_open && !tabs.find.matches.is_empty() {
+                    for (m_idx, &(m_start, m_end)) in tabs.find.matches.iter().enumerate() {
+                        if char_idx >= m_start && char_idx < m_end {
+                            let color = if tabs.find.active_match_idx == Some(m_idx) {
+                                COLOR_FIND_ACTIVE
+                            } else {
+                                COLOR_FIND_MATCH
+                            };
+                            draw_solid_rect(frame, screen_w, screen_h, text_x, y, cw, lh, color);
+                            break;
+                        }
+                    }
+                }
+                let char_color = syntax_colors
+                    .get(col_idx)
+                    .copied()
+                    .unwrap_or(COLOR_TEXT_DEFAULT);
+                fonts.draw_char(
+                    frame,
+                    ch,
+                    text_x as i32,
+                    y as i32,
+                    screen_w,
+                    screen_h,
+                    char_color,
+                );
             }
-            let char_color = syntax_colors
-                .get(col_idx)
-                .copied()
-                .unwrap_or(COLOR_TEXT_DEFAULT);
-            fonts.draw_char(
+        }
+        if cur_line >= buffer.scroll_line
+            && cur_line < buffer.scroll_line + layout.visible_lines
+            && cur_col >= buffer.scroll_col
+            && cur_col <= buffer.scroll_col + layout.visible_cols
+        {
+            let cx = layout.code_x + (cur_col - buffer.scroll_col) * cw;
+            let cy = TAB_BAR_HEIGHT + TOP_PADDING + (cur_line - buffer.scroll_line) * lh;
+            let max_y = (cy + lh).min(layout.content_bottom).min(screen_h);
+            let max_x = (cx + 2).min(layout.content_right).min(screen_w);
+            for y in cy.min(screen_h)..max_y {
+                for x in cx.min(screen_w)..max_x {
+                    frame[y * screen_w + x] = COLOR_CURSOR;
+                }
+            }
+        }
+        let usable_track_h = layout.content_bottom.saturating_sub(TAB_BAR_HEIGHT);
+        let virtual_total_lines = total_lines + layout.visible_lines.saturating_sub(1);
+        let vert_thumb = calc_thumb(
+            virtual_total_lines,
+            layout.visible_lines,
+            buffer.scroll_line,
+            usable_track_h,
+        );
+        let horiz_track_w = layout.content_right.saturating_sub(layout.bar_start_x);
+        let horiz_thumb = calc_thumb(
+            buffer.max_line_len,
+            layout.visible_cols,
+            buffer.scroll_col,
+            horiz_track_w,
+        );
+        if let Some((ty, th)) = vert_thumb {
+            let thumb_y = TAB_BAR_HEIGHT + ty;
+            draw_solid_rect(
                 frame,
-                ch,
-                text_x as i32,
-                y as i32,
                 screen_w,
                 screen_h,
-                char_color,
+                layout.content_right,
+                TAB_BAR_HEIGHT,
+                SCROLLBAR_THICKNESS,
+                usable_track_h,
+                COLOR_BACKGROUND,
+            );
+            draw_solid_rect(
+                frame,
+                screen_w,
+                screen_h,
+                layout.content_right,
+                thumb_y,
+                SCROLLBAR_THICKNESS,
+                th,
+                COLOR_SCROLLBAR_THUMB,
             );
         }
-    }
-    if cur_line >= buffer.scroll_line
-        && cur_line < buffer.scroll_line + layout.visible_lines
-        && cur_col >= buffer.scroll_col
-        && cur_col <= buffer.scroll_col + layout.visible_cols
-    {
-        let cx = layout.code_x + (cur_col - buffer.scroll_col) * cw;
-        let cy = TAB_BAR_HEIGHT + TOP_PADDING + (cur_line - buffer.scroll_line) * lh;
-        let max_y = (cy + lh).min(layout.content_bottom).min(screen_h);
-        let max_x = (cx + 2).min(layout.content_right).min(screen_w);
-        for y in cy.min(screen_h)..max_y {
-            for x in cx.min(screen_w)..max_x {
-                frame[y * screen_w + x] = COLOR_CURSOR;
-            }
+        if let Some((tx_offset, tw)) = horiz_thumb {
+            let tx = layout.bar_start_x + tx_offset;
+            draw_solid_rect(
+                frame,
+                screen_w,
+                screen_h,
+                layout.bar_start_x,
+                layout.content_bottom,
+                horiz_track_w,
+                SCROLLBAR_THICKNESS,
+                COLOR_BACKGROUND,
+            );
+            draw_solid_rect(
+                frame,
+                screen_w,
+                screen_h,
+                tx,
+                layout.content_bottom,
+                tw,
+                SCROLLBAR_THICKNESS,
+                COLOR_SCROLLBAR_THUMB,
+            );
         }
-    }
-    let usable_track_h = layout.content_bottom.saturating_sub(TAB_BAR_HEIGHT);
-    let virtual_total_lines = total_lines + layout.visible_lines.saturating_sub(1);
-    let vert_thumb = calc_thumb(
-        virtual_total_lines,
-        layout.visible_lines,
-        buffer.scroll_line,
-        usable_track_h,
-    );
-    let horiz_track_w = layout.content_right.saturating_sub(layout.bar_start_x);
-    let horiz_thumb = calc_thumb(
-        buffer.max_line_len,
-        layout.visible_cols,
-        buffer.scroll_col,
-        horiz_track_w,
-    );
-    if let Some((ty, th)) = vert_thumb {
-        let thumb_y = TAB_BAR_HEIGHT + ty;
         draw_solid_rect(
             frame,
             screen_w,
             screen_h,
             layout.content_right,
-            TAB_BAR_HEIGHT,
-            SCROLLBAR_THICKNESS,
-            usable_track_h,
-            COLOR_BACKGROUND,
-        );
-        draw_solid_rect(
-            frame,
-            screen_w,
-            screen_h,
-            layout.content_right,
-            thumb_y,
-            SCROLLBAR_THICKNESS,
-            th,
-            COLOR_SCROLLBAR_THUMB,
-        );
-    }
-    if let Some((tx_offset, tw)) = horiz_thumb {
-        let tx = layout.bar_start_x + tx_offset;
-        draw_solid_rect(
-            frame,
-            screen_w,
-            screen_h,
-            layout.bar_start_x,
             layout.content_bottom,
-            horiz_track_w,
+            SCROLLBAR_THICKNESS,
             SCROLLBAR_THICKNESS,
             COLOR_BACKGROUND,
         );
-        draw_solid_rect(
-            frame,
-            screen_w,
-            screen_h,
-            tx,
-            layout.content_bottom,
-            tw,
-            SCROLLBAR_THICKNESS,
-            COLOR_SCROLLBAR_THUMB,
-        );
     }
-    draw_solid_rect(
-        frame,
-        screen_w,
-        screen_h,
-        layout.content_right,
-        layout.content_bottom,
-        SCROLLBAR_THICKNESS,
-        SCROLLBAR_THICKNESS,
-        COLOR_BACKGROUND,
-    );
+
+    let find_h = if tabs.find.is_open {
+        if tabs.find.is_replace {
+            66
+        } else {
+            36
+        }
+    } else {
+        0
+    };
+    let qo_h = if tabs.quick_open.is_open { 36 } else { 0 };
+    let base_y = layout.content_bottom + SCROLLBAR_THICKNESS;
+
+    let (find_y, qo_y) = if tabs.find.is_open && tabs.quick_open.is_open {
+        if tabs.quick_open_above_find {
+            (base_y + qo_h, base_y)
+        } else {
+            (base_y, base_y + find_h)
+        }
+    } else {
+        (base_y, base_y)
+    };
+
     if tabs.find.is_open {
-        render_find_bar(frame, fonts, tabs, layout, screen_w, screen_h);
+        render_find_bar(frame, fonts, tabs, layout, screen_w, screen_h, find_y);
+    }
+    if tabs.quick_open.is_open {
+        render_quick_open_bar(frame, fonts, tabs, layout, screen_w, screen_h, qo_y);
     }
 }
 
@@ -359,12 +384,12 @@ fn render_find_bar(
     layout: &ViewportLayout,
     screen_w: usize,
     screen_h: usize,
+    bar_y: usize,
 ) {
     let cw = fonts.char_width;
     let bar_h = if tabs.find.is_replace { 66 } else { 36 };
     let bar_x = layout.content_left;
     let bar_w = screen_w.saturating_sub(bar_x);
-    let bar_y = layout.content_bottom + SCROLLBAR_THICKNESS;
     draw_solid_rect(
         frame,
         screen_w,
@@ -1085,6 +1110,423 @@ fn render_find_bar(
             screen_w,
             screen_h,
             all_fg,
+        );
+    }
+}
+
+pub fn render_quick_open_bar(
+    frame: &mut [u32],
+    fonts: &mut FontManager,
+    tabs: &TabManager,
+    layout: &ViewportLayout,
+    screen_w: usize,
+    screen_h: usize,
+    bar_y: usize,
+) {
+    let cw = fonts.char_width;
+    let bar_h = 36;
+    let bar_x = layout.content_left;
+    let bar_w = screen_w.saturating_sub(bar_x);
+
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        bar_x,
+        bar_y,
+        bar_w,
+        1,
+        COLOR_SIDEBAR_BORDER,
+    );
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        bar_x,
+        bar_y + 1,
+        bar_w,
+        bar_h - 1,
+        COLOR_TABBAR_BG,
+    );
+
+    let input_h: usize = 24;
+    let input_y = bar_y + 6;
+    let cap_h = (fonts.baseline_offset * 73) / 100;
+    let text_y =
+        input_y as i32 + (input_h as i32 + cap_h as i32) / 2 - fonts.baseline_offset as i32;
+
+    let close_w = ("Close".len() * cw + 16) as i32;
+    let close_btn_x = (bar_x + bar_w).saturating_sub(close_w as usize + 6);
+    let is_close_hovered = tabs.quick_open.hovered_close;
+    let close_bg = if is_close_hovered {
+        COLOR_BTN_HOVER
+    } else {
+        COLOR_BTN_BG
+    };
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        close_btn_x,
+        input_y,
+        close_w as usize,
+        input_h,
+        close_bg,
+    );
+    let close_tx = close_btn_x as i32 + (close_w - ("Close".len() * cw) as i32) / 2;
+    draw_string_clipped(
+        fonts,
+        frame,
+        "Close",
+        close_tx,
+        text_y,
+        close_btn_x,
+        close_btn_x + close_w as usize,
+        screen_w,
+        screen_h,
+        COLOR_TAB_TEXT_ACTIVE,
+    );
+
+    let input_x = bar_x + 6;
+    let input_w = close_btn_x.saturating_sub(input_x + 6);
+    let is_focused = tabs.quick_open.focused;
+    let border_color = if is_focused {
+        COLOR_CURSOR
+    } else {
+        COLOR_FIND_INPUT_BORDER
+    };
+
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        input_x,
+        input_y,
+        input_w,
+        input_h,
+        COLOR_FIND_INPUT_BG,
+    );
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        input_x,
+        input_y,
+        input_w,
+        1,
+        border_color,
+    );
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        input_x,
+        input_y + input_h - 1,
+        input_w,
+        1,
+        border_color,
+    );
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        input_x,
+        input_y,
+        1,
+        input_h,
+        border_color,
+    );
+    draw_solid_rect(
+        frame,
+        screen_w,
+        screen_h,
+        input_x + input_w - 1,
+        input_y,
+        1,
+        input_h,
+        border_color,
+    );
+
+    let padding = 6;
+    let text_clip_left = input_x + padding;
+    let text_clip_right = (input_x + input_w).saturating_sub(padding);
+    let max_vis_chars = if cw > 0 {
+        input_w.saturating_sub(padding * 2) / cw
+    } else {
+        10
+    };
+
+    if tabs.quick_open.query.is_empty() {
+        draw_string_clipped(
+            fonts,
+            frame,
+            "Search files by name (e.g. main.rs)...",
+            (input_x + padding) as i32,
+            text_y,
+            text_clip_left,
+            text_clip_right,
+            screen_w,
+            screen_h,
+            COLOR_LINE_NUMBER_MUTED,
+        );
+        if is_focused {
+            draw_solid_rect(
+                frame,
+                screen_w,
+                screen_h,
+                input_x + padding,
+                input_y + 3,
+                2,
+                18,
+                COLOR_CURSOR,
+            );
+        }
+    } else {
+        let q_len = tabs.quick_open.query.chars().count();
+        let cur = tabs.quick_open.cursor.min(q_len);
+        let scroll_offset = tabs
+            .quick_open
+            .query_scroll
+            .min(q_len.saturating_sub(max_vis_chars));
+        let draw_x = (input_x + padding) as i32 - (scroll_offset * cw) as i32;
+
+        if let Some(anchor) = tabs.quick_open.selection_anchor {
+            let start = anchor.min(cur);
+            let end = anchor.max(cur);
+            if start < end {
+                let sel_x = (input_x + padding) as i32
+                    + ((start as i32 - scroll_offset as i32) * cw as i32);
+                let sel_w = (end - start) * cw;
+                draw_solid_rect_clipped(
+                    frame,
+                    screen_w,
+                    screen_h,
+                    sel_x,
+                    input_y as i32 + 3,
+                    sel_w,
+                    18,
+                    text_clip_left,
+                    text_clip_right,
+                    COLOR_SELECTION,
+                );
+            }
+        }
+
+        draw_string_clipped(
+            fonts,
+            frame,
+            &tabs.quick_open.query,
+            draw_x,
+            text_y,
+            text_clip_left,
+            text_clip_right,
+            screen_w,
+            screen_h,
+            COLOR_TAB_TEXT_ACTIVE,
+        );
+
+        if is_focused {
+            let cx = (input_x + padding) as i32 + ((cur as i32 - scroll_offset as i32) * cw as i32);
+            if cx >= text_clip_left as i32 && (cx + 2) <= text_clip_right as i32 {
+                draw_solid_rect(
+                    frame,
+                    screen_w,
+                    screen_h,
+                    cx as usize,
+                    input_y + 3,
+                    2,
+                    18,
+                    COLOR_CURSOR,
+                );
+            }
+        }
+    }
+
+    let max_visible_items = 8;
+    let item_count = tabs.quick_open.matches.len().min(max_visible_items);
+
+    if item_count > 0 {
+        let row_h = 28;
+        let popup_h = item_count * row_h;
+        let popup_y = bar_y.saturating_sub(popup_h);
+        let popup_x = bar_x;
+        let popup_w = bar_w;
+
+        draw_solid_rect(
+            frame,
+            screen_w,
+            screen_h,
+            popup_x,
+            popup_y,
+            popup_w,
+            popup_h,
+            COLOR_MODAL_BG,
+        );
+        draw_solid_rect(
+            frame,
+            screen_w,
+            screen_h,
+            popup_x,
+            popup_y,
+            popup_w,
+            1,
+            COLOR_MODAL_BORDER,
+        );
+        draw_solid_rect(
+            frame,
+            screen_w,
+            screen_h,
+            popup_x,
+            popup_y + popup_h - 1,
+            popup_w,
+            1,
+            COLOR_MODAL_BORDER,
+        );
+        draw_solid_rect(
+            frame,
+            screen_w,
+            screen_h,
+            popup_x,
+            popup_y,
+            1,
+            popup_h,
+            COLOR_MODAL_BORDER,
+        );
+        draw_solid_rect(
+            frame,
+            screen_w,
+            screen_h,
+            popup_x + popup_w - 1,
+            popup_y,
+            1,
+            popup_h,
+            COLOR_MODAL_BORDER,
+        );
+
+        let selected = tabs.quick_open.selected_match;
+        let start_idx = if selected >= max_visible_items {
+            selected - max_visible_items + 1
+        } else {
+            0
+        };
+
+        for i in 0..item_count {
+            let idx = start_idx + i;
+            if let Some(item) = tabs.quick_open.matches.get(idx) {
+                let row_y = popup_y + i * row_h;
+                let is_selected = idx == selected;
+                let is_hovered = tabs.quick_open.hovered_match == Some(idx);
+                let row_bg = if is_selected {
+                    COLOR_SIDEBAR_ROW_ACTIVE
+                } else if is_hovered {
+                    COLOR_SIDEBAR_ROW_HOVER
+                } else {
+                    COLOR_MODAL_BG
+                };
+
+                if row_bg != COLOR_MODAL_BG {
+                    draw_solid_rect(
+                        frame,
+                        screen_w,
+                        screen_h,
+                        popup_x + 1,
+                        row_y + 1,
+                        popup_w.saturating_sub(2),
+                        row_h - 1,
+                        row_bg,
+                    );
+                }
+
+                let text_color = if is_selected {
+                    COLOR_TAB_TEXT_ACTIVE
+                } else {
+                    COLOR_SIDEBAR_TEXT
+                };
+                let row_text_y =
+                    row_y as i32 + (row_h as i32 + cap_h as i32) / 2 - fonts.baseline_offset as i32;
+                draw_string_ellipsis(
+                    fonts,
+                    frame,
+                    &item.relative_path,
+                    (popup_x + 14) as i32,
+                    row_text_y,
+                    popup_x + popup_w - 14,
+                    screen_w,
+                    screen_h,
+                    text_color,
+                );
+            }
+        }
+    } else if !tabs.quick_open.query.is_empty() {
+        let row_h = 28;
+        let popup_y = bar_y.saturating_sub(row_h);
+        let popup_x = bar_x;
+        let popup_w = bar_w;
+
+        draw_solid_rect(
+            frame,
+            screen_w,
+            screen_h,
+            popup_x,
+            popup_y,
+            popup_w,
+            row_h,
+            COLOR_MODAL_BG,
+        );
+        draw_solid_rect(
+            frame,
+            screen_w,
+            screen_h,
+            popup_x,
+            popup_y,
+            popup_w,
+            1,
+            COLOR_MODAL_BORDER,
+        );
+        draw_solid_rect(
+            frame,
+            screen_w,
+            screen_h,
+            popup_x,
+            popup_y + row_h - 1,
+            popup_w,
+            1,
+            COLOR_MODAL_BORDER,
+        );
+        draw_solid_rect(
+            frame,
+            screen_w,
+            screen_h,
+            popup_x,
+            popup_y,
+            1,
+            row_h,
+            COLOR_MODAL_BORDER,
+        );
+        draw_solid_rect(
+            frame,
+            screen_w,
+            screen_h,
+            popup_x + popup_w - 1,
+            popup_y,
+            1,
+            row_h,
+            COLOR_MODAL_BORDER,
+        );
+
+        let row_text_y =
+            popup_y as i32 + (row_h as i32 + cap_h as i32) / 2 - fonts.baseline_offset as i32;
+        draw_string_clipped(
+            fonts,
+            frame,
+            "No matching files",
+            (popup_x + 14) as i32,
+            row_text_y,
+            popup_x + 14,
+            popup_x + popup_w - 14,
+            screen_w,
+            screen_h,
+            COLOR_LINE_NUMBER_MUTED,
         );
     }
 }

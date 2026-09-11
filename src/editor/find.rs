@@ -73,6 +73,12 @@ impl FindState {
     pub fn close(&mut self) {
         self.is_open = false;
         self.focused = false;
+        self.is_replace = false;
+        self.active_field = FindField::Find;
+        self.query.clear();
+        self.replace_text.clear();
+        self.query_cursor = 0;
+        self.replace_cursor = 0;
         self.matches.clear();
         self.active_match_idx = None;
         self.hovered_btn = None;
@@ -704,7 +710,7 @@ impl CompiledRegex {
         best: &mut Option<usize>,
     ) {
         if pieces.is_empty() {
-            if best.is_none_or(|b| matched_len > b) {
+            if best.map_or(true, |b| matched_len > b) {
                 *best = Some(matched_len);
             }
             return;

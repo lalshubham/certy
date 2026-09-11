@@ -11,6 +11,30 @@ use crate::ui::ContextMenu;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 use winit::window::CursorIcon;
 
+fn compute_bottom_bars_y(tabs: &TabManager, layout: &ViewportLayout) -> (usize, usize) {
+    let find_h = if tabs.find.is_open {
+        if tabs.find.is_replace {
+            66
+        } else {
+            36
+        }
+    } else {
+        0
+    };
+    let qo_h = if tabs.quick_open.is_open { 36 } else { 0 };
+    let base_y = layout.content_bottom + SCROLLBAR_THICKNESS;
+
+    if tabs.find.is_open && tabs.quick_open.is_open {
+        if tabs.quick_open_above_find {
+            (base_y + qo_h, base_y)
+        } else {
+            (base_y, base_y + find_h)
+        }
+    } else {
+        (base_y, base_y)
+    }
+}
+
 fn update_terminal_tab_hover(
     terminal: &mut Terminal,
     mx: usize,
@@ -62,6 +86,7 @@ fn update_find_hover(
     char_w: usize,
     mx: usize,
     my: usize,
+    bar_y: usize,
 ) {
     tabs.find.hovered_btn = None;
     if !tabs.find.is_open {
@@ -70,7 +95,6 @@ fn update_find_hover(
     let bar_h = if tabs.find.is_replace { 66 } else { 36 };
     let bar_x = layout.content_left;
     let bar_w = screen_w.saturating_sub(bar_x);
-    let bar_y = layout.content_bottom + SCROLLBAR_THICKNESS;
     if my < bar_y || my >= bar_y + bar_h || mx < bar_x || mx >= bar_x + bar_w {
         return;
     }
@@ -178,6 +202,57 @@ fn update_find_hover(
     }
 }
 
+fn update_quick_open_hover(
+    tabs: &mut TabManager,
+    layout: &ViewportLayout,
+    screen_w: usize,
+    char_w: usize,
+    mx: usize,
+    my: usize,
+    qo_y: usize,
+) {
+    tabs.quick_open.hovered_close = false;
+    tabs.quick_open.hovered_match = None;
+    if !tabs.quick_open.is_open {
+        return;
+    }
+    let bar_x = layout.content_left;
+    let bar_w = screen_w.saturating_sub(bar_x);
+    let cw = char_w.max(1);
+    let input_h: usize = 24;
+    let input_y = qo_y + 6;
+    let close_w = "Close".len() * cw + 16;
+    let close_btn_x = (bar_x + bar_w).saturating_sub(close_w + 6);
+
+    if mx >= close_btn_x && mx < close_btn_x + close_w && my >= input_y && my < input_y + input_h {
+        tabs.quick_open.hovered_close = true;
+        return;
+    }
+
+    let max_visible_items = 8;
+    let item_count = tabs.quick_open.matches.len().min(max_visible_items);
+    if item_count > 0 {
+        let row_h = 28;
+        let popup_h = item_count * row_h;
+        let popup_y = qo_y.saturating_sub(popup_h);
+        let popup_x = bar_x;
+        let popup_w = bar_w;
+        if mx >= popup_x && mx < popup_x + popup_w && my >= popup_y && my < popup_y + popup_h {
+            let selected = tabs.quick_open.selected_match;
+            let start_idx = if selected >= max_visible_items {
+                selected - max_visible_items + 1
+            } else {
+                0
+            };
+            let row_idx = (my - popup_y) / row_h;
+            let match_idx = start_idx + row_idx;
+            if match_idx < tabs.quick_open.matches.len() {
+                tabs.quick_open.hovered_match = Some(match_idx);
+            }
+        }
+    }
+}
+
 impl InputHandler {
     pub fn desired_cursor_icon(
         &mut self,
@@ -262,9 +337,26 @@ impl InputHandler {
                 CursorIcon::Default
             };
         }
+
+        let (find_y, qo_y) = compute_bottom_bars_y(tabs, layout);
+
+        if tabs.quick_open.is_open {
+            if tabs.quick_open.hovered_close || tabs.quick_open.hovered_match.is_some() {
+                return CursorIcon::Pointer;
+            }
+            let input_y = qo_y + 6;
+            let close_w = "Close".len() * 9 + 16;
+            let close_btn_x =
+                (layout.content_right + SCROLLBAR_THICKNESS).saturating_sub(close_w + 6);
+            let input_x = layout.content_left + 6;
+            if mx >= input_x && mx < close_btn_x && my >= input_y && my < input_y + 24 {
+                return CursorIcon::Text;
+            }
+        }
+
         if tabs.find.is_open {
             let bar_h = if tabs.find.is_replace { 66 } else { 36 };
-            let bar_y = layout.content_bottom + SCROLLBAR_THICKNESS;
+            let bar_y = find_y;
             if my >= bar_y && my < bar_y + bar_h && mx >= layout.content_left {
                 if tabs.find.hovered_btn.is_some() {
                     return CursorIcon::Pointer;
@@ -400,12 +492,16 @@ impl InputHandler {
         let prev_t_tab = terminal.hovered_tab;
         let prev_t_tab_close = terminal.hovered_close_tab;
         let prev_find_hover = tabs.find.hovered_btn;
+        let prev_qo_close = tabs.quick_open.hovered_close;
+        let prev_qo_match = tabs.quick_open.hovered_match;
 
         sidebar.hovered_menu_header = false;
         sidebar.hovered_menu_item = None;
         sidebar.hovered_terminal_header = false;
         sidebar.hovered_root_header = false;
         sidebar.hovered_tree_row = None;
+
+        let (find_y, qo_y) = compute_bottom_bars_y(tabs, layout);
 
         update_terminal_tab_hover(
             terminal,
@@ -416,7 +512,8 @@ impl InputHandler {
             screen_h,
             char_w,
         );
-        update_find_hover(tabs, layout, screen_w, char_w, mx, my);
+        update_find_hover(tabs, layout, screen_w, char_w, mx, my, find_y);
+        update_quick_open_hover(tabs, layout, screen_w, char_w, mx, my, qo_y);
 
         let total_sidebar_h = sidebar.total_content_height();
         let has_sidebar_scroll = total_sidebar_h > screen_h;
@@ -477,7 +574,9 @@ impl InputHandler {
             || prev_t_new != terminal.hovered_new
             || prev_t_tab != terminal.hovered_tab
             || prev_t_tab_close != terminal.hovered_close_tab
-            || prev_find_hover != tabs.find.hovered_btn;
+            || prev_find_hover != tabs.find.hovered_btn
+            || prev_qo_close != tabs.quick_open.hovered_close
+            || prev_qo_match != tabs.quick_open.hovered_match;
 
         match self.drag {
             DragState::SidebarResize { start_x, start_w } => {
@@ -721,17 +820,45 @@ impl InputHandler {
         }
         self.is_left_down = true;
         let (mx, my) = (self.mouse_x as usize, self.mouse_y as usize);
-        let is_find_bar = tabs.find.is_open
-            && my >= layout.content_bottom + SCROLLBAR_THICKNESS
+
+        let (find_y, qo_y) = compute_bottom_bars_y(tabs, layout);
+        let find_h = if tabs.find.is_open {
+            if tabs.find.is_replace {
+                66
+            } else {
+                36
+            }
+        } else {
+            0
+        };
+
+        let is_find_bar =
+            tabs.find.is_open && my >= find_y && my < find_y + find_h && mx >= layout.content_left;
+
+        let is_quick_open_bar =
+            tabs.quick_open.is_open && my >= qo_y && my < qo_y + 36 && mx >= layout.content_left;
+
+        let max_visible_items = 8;
+        let qo_item_count = tabs.quick_open.matches.len().min(max_visible_items);
+        let qo_popup_h = qo_item_count * 28;
+        let qo_popup_y = qo_y.saturating_sub(qo_popup_h);
+        let is_quick_open_popup = tabs.quick_open.is_open
+            && qo_item_count > 0
+            && my >= qo_popup_y
+            && my < qo_y
             && mx >= layout.content_left;
+
+        let is_bottom_bar = is_find_bar || is_quick_open_bar || is_quick_open_popup;
+
         if my < TAB_BAR_HEIGHT
             || mx < layout.content_left
-            || (mx >= layout.content_right && !is_find_bar)
-            || (my >= layout.content_bottom && !is_find_bar)
+            || (mx >= layout.content_right && !is_bottom_bar)
+            || (my >= layout.content_bottom && !is_bottom_bar)
         {
             self.last_click_time = None;
             self.click_count = 0;
         }
+
         if let Some(menu) = self.context_menu.take() {
             if mx >= menu.x && mx < menu.x + menu.width && my >= menu.y && my < menu.y + menu.height
             {
@@ -990,7 +1117,10 @@ impl InputHandler {
                     return ActionEvent::Redraw;
                 }
                 if let Some(tab_idx) = tabs.hovered_tab {
-                    tabs.active_idx = Some(tab_idx);
+                    if tabs.active_idx != Some(tab_idx) {
+                        tabs.active_idx = Some(tab_idx);
+                        tabs.update_find_matches();
+                    }
                     tabs.ensure_active_tab_visible(char_w, available_w);
                     self.update_tab_hover(tabs, layout, char_w);
                     return ActionEvent::Redraw;
@@ -998,9 +1128,108 @@ impl InputHandler {
             }
             return ActionEvent::None;
         }
+
+        if tabs.quick_open.is_open
+            && qo_item_count > 0
+            && my >= qo_popup_y
+            && my < qo_y
+            && mx >= layout.content_left
+        {
+            let bar_x = layout.content_left;
+            let bar_w = screen_w.saturating_sub(bar_x);
+            let popup_x = bar_x;
+            let popup_w = bar_w;
+            if mx >= popup_x && mx < popup_x + popup_w {
+                let selected = tabs.quick_open.selected_match;
+                let start_idx = if selected >= max_visible_items {
+                    selected - max_visible_items + 1
+                } else {
+                    0
+                };
+                let row_idx = (my - qo_popup_y) / 28;
+                let match_idx = start_idx + row_idx;
+                if let Some(item) = tabs.quick_open.matches.get(match_idx) {
+                    let path = item.path.clone();
+                    tabs.quick_open.close();
+                    return ActionEvent::OpenFile(path);
+                }
+            }
+            return ActionEvent::Redraw;
+        }
+
+        if tabs.quick_open.is_open && my >= qo_y && my < qo_y + 36 && mx >= layout.content_left {
+            terminal.focused = false;
+            tabs.find.focused = false;
+            tabs.quick_open.focused = true;
+            let bar_x = layout.content_left;
+            let bar_w = screen_w.saturating_sub(bar_x);
+            let cw = char_w.max(1);
+            let input_h: usize = 24;
+            let input_y = qo_y + 6;
+            let close_w = "Close".len() * cw + 16;
+            let close_btn_x = (bar_x + bar_w).saturating_sub(close_w + 6);
+
+            if mx >= close_btn_x
+                && mx < close_btn_x + close_w
+                && my >= input_y
+                && my < input_y + input_h
+            {
+                tabs.quick_open.close();
+                if tabs.find.is_open {
+                    tabs.find.focused = true;
+                }
+                return ActionEvent::Redraw;
+            }
+
+            let input_x = bar_x + 6;
+            let input_w = close_btn_x.saturating_sub(input_x + 6);
+            if mx >= input_x && mx < input_x + input_w && my >= input_y && my < input_y + input_h {
+                let padding = 6;
+                let click_offset = (mx as i32 - input_x as i32 - padding as i32).max(0) as usize;
+                let char_offset = click_offset / cw;
+                let max_vis_chars = if cw > 0 {
+                    input_w.saturating_sub(padding * 2) / cw
+                } else {
+                    10
+                };
+                let q_len = tabs.quick_open.query.chars().count();
+                let scroll_offset = tabs
+                    .quick_open
+                    .query_scroll
+                    .min(q_len.saturating_sub(max_vis_chars));
+                tabs.quick_open.cursor = (scroll_offset + char_offset).min(q_len);
+                tabs.quick_open.selection_anchor = Some(tabs.quick_open.cursor);
+
+                let now = std::time::Instant::now();
+                let is_multi = if let Some(last_time) = self.last_click_time {
+                    let elapsed = now.duration_since(last_time);
+                    let dx = self.mouse_x - self.last_click_pos.0;
+                    let dy = self.mouse_y - self.last_click_pos.1;
+                    elapsed.as_millis() <= 500 && (dx * dx + dy * dy) <= 36.0
+                } else {
+                    false
+                };
+                if is_multi {
+                    self.click_count = (self.click_count % 3) + 1;
+                } else {
+                    self.click_count = 1;
+                }
+                self.last_click_time = Some(now);
+                self.last_click_pos = (self.mouse_x, self.mouse_y);
+
+                match self.click_count {
+                    2 => tabs.quick_open.select_all(),
+                    3 => tabs.quick_open.select_all(),
+                    _ => {}
+                }
+                return ActionEvent::Redraw;
+            }
+            return ActionEvent::Redraw;
+        }
+
         if tabs.find.is_open {
             let bar_h = if tabs.find.is_replace { 66 } else { 36 };
-            let bar_y = layout.content_bottom + SCROLLBAR_THICKNESS;
+            let bar_y = find_y;
             let bar_w = screen_w.saturating_sub(layout.content_left);
             if my >= bar_y
                 && my < bar_y + bar_h
@@ -1008,6 +1237,7 @@ impl InputHandler {
                 && mx < layout.content_left + bar_w
             {
                 terminal.focused = false;
+                tabs.quick_open.focused = false;
                 tabs.find.focused = true;
                 let cw = char_w.max(1);
                 let input_h: usize = 24;
@@ -1041,6 +1271,9 @@ impl InputHandler {
                     && my < bottom_row_y + input_h
                 {
                     tabs.find.close();
+                    if tabs.quick_open.is_open {
+                        tabs.quick_open.focused = true;
+                    }
                     return ActionEvent::Redraw;
                 }
                 let strip_min_x = layout.content_left;
@@ -1271,8 +1504,13 @@ impl InputHandler {
                 return ActionEvent::Redraw;
             }
         }
+
         terminal.focused = false;
         tabs.find.focused = false;
+        if tabs.quick_open.is_open {
+            tabs.quick_open.close();
+        }
+
         if let Some(active_tab) = tabs.active_tab_mut() {
             let active_buf = &mut active_tab.buffer;
             let total = active_buf.text().len_lines();
@@ -1487,9 +1725,30 @@ impl InputHandler {
             }
             return false;
         }
+
+        let (find_y, qo_y) = compute_bottom_bars_y(tabs, layout);
+
+        if tabs.quick_open.is_open && mx >= layout.content_left {
+            let max_visible_items = 8;
+            let qo_item_count = tabs.quick_open.matches.len().min(max_visible_items);
+            let qo_popup_h = qo_item_count * 28;
+            let qo_popup_y = qo_y.saturating_sub(qo_popup_h);
+            if qo_item_count > 0 && my >= qo_popup_y && my < qo_y {
+                if lines > 0 {
+                    tabs.quick_open.prev_match();
+                    update_quick_open_hover(tabs, layout, screen_w, char_w, mx, my, qo_y);
+                    return true;
+                } else if lines < 0 {
+                    tabs.quick_open.next_match();
+                    update_quick_open_hover(tabs, layout, screen_w, char_w, mx, my, qo_y);
+                    return true;
+                }
+            }
+        }
+
         if tabs.find.is_open {
             let bar_h = if tabs.find.is_replace { 66 } else { 36 };
-            let bar_y = layout.content_bottom + SCROLLBAR_THICKNESS;
+            let bar_y = find_y;
             if my >= bar_y && my < bar_y + bar_h && mx >= layout.content_left {
                 let cw = char_w.max(1);
                 let toggle_label = if tabs.find.is_replace { "[-]" } else { "[+]" };
@@ -1545,7 +1804,7 @@ impl InputHandler {
                     .clamp(0, max_scroll as i32) as usize;
                 if tabs.find.scroll_x != next_scroll {
                     tabs.find.scroll_x = next_scroll;
-                    update_find_hover(tabs, layout, screen_w, char_w, mx, my);
+                    update_find_hover(tabs, layout, screen_w, char_w, mx, my, find_y);
                     return true;
                 }
                 return false;

@@ -378,6 +378,7 @@ impl ApplicationHandler<AppEvent> for App {
         } else {
             0
         };
+        let quick_open_h = if self.tabs.quick_open.is_open { 36 } else { 0 };
         let total_lines = self
             .tabs
             .active_tab()
@@ -390,7 +391,7 @@ impl ApplicationHandler<AppEvent> for App {
         };
         let layout = compute_layout(
             screen_w,
-            screen_h.saturating_sub(term_h + find_h),
+            screen_h.saturating_sub(term_h + find_h + quick_open_h),
             cw,
             lh,
             total_lines,
@@ -449,6 +450,7 @@ impl ApplicationHandler<AppEvent> for App {
                 self.tabs.clamp_scroll(cw, avail_w);
                 let find_open = self.tabs.find.is_open;
                 let find_rep = self.tabs.find.is_replace;
+                let qo_open = self.tabs.quick_open.is_open;
                 let close_w = "Close".len() * cw + 16;
                 let strip_w = screen_w.saturating_sub(effective_sidebar_w + close_w + 14);
                 self.tabs.find.clamp_scroll(cw, strip_w);
@@ -458,7 +460,7 @@ impl ApplicationHandler<AppEvent> for App {
                     } else {
                         0
                     };
-                    let find_h = if find_open {
+                    let cur_find_h = if find_open {
                         if find_rep {
                             66
                         } else {
@@ -467,9 +469,10 @@ impl ApplicationHandler<AppEvent> for App {
                     } else {
                         0
                     };
+                    let cur_qo_h = if qo_open { 36 } else { 0 };
                     let l = compute_layout(
                         screen_w,
-                        screen_h.saturating_sub(cur_term_h + find_h),
+                        screen_h.saturating_sub(cur_term_h + cur_find_h + cur_qo_h),
                         cw,
                         lh,
                         tab.buffer.text().len_lines(),
@@ -540,7 +543,7 @@ impl ApplicationHandler<AppEvent> for App {
                         self.tabs.ensure_active_tab_visible(cw, avail_w);
                         let new_layout = compute_layout(
                             screen_w,
-                            screen_h.saturating_sub(term_h + find_h),
+                            screen_h.saturating_sub(term_h + find_h + quick_open_h),
                             cw,
                             lh,
                             total_lines,
@@ -1056,6 +1059,7 @@ impl ApplicationHandler<AppEvent> for App {
                 if self.input.handle_key(
                     &event,
                     &mut self.tabs,
+                    &self.sidebar,
                     &mut self.terminal,
                     &layout,
                     cw,

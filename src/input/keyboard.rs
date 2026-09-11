@@ -1,6 +1,7 @@
 use super::InputHandler;
 use crate::editor::find::FindField;
 use crate::editor::TabManager;
+use crate::sidebar::Sidebar;
 use crate::terminal::Terminal;
 use crate::ui::layout::ViewportLayout;
 use arboard::Clipboard;
@@ -12,6 +13,7 @@ impl InputHandler {
         &mut self,
         event: &KeyEvent,
         tabs: &mut TabManager,
+        sidebar: &Sidebar,
         terminal: &mut Terminal,
         layout: &ViewportLayout,
         char_w: usize,
@@ -55,11 +57,21 @@ impl InputHandler {
             }
             return false;
         }
+        if tabs.quick_open.is_open
+            && event.state == ElementState::Pressed
+            && matches!(event.logical_key, Key::Named(NamedKey::Escape))
+        {
+            tabs.quick_open.close();
+            if tabs.find.is_open {
+                tabs.find.focused = true;
+            }
+            return true;
+        }
         if tabs.find.is_open
             && event.state == ElementState::Pressed
             && matches!(event.logical_key, Key::Named(NamedKey::Escape))
         {
-            tabs.find.close();
+            tabs.find.focused = false;
             return true;
         }
         if event.logical_key == Key::Named(NamedKey::Control)
@@ -169,6 +181,166 @@ impl InputHandler {
             return false;
         }
 
+        let is_p = matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyP))
+            || match &event.logical_key {
+                Key::Character(c) => c.eq_ignore_ascii_case("p") || c == "\u{10}",
+                _ => false,
+            };
+
+        if is_ctrl && !is_shift && !is_alt && is_p {
+            if tabs.quick_open.is_open {
+                tabs.quick_open.close();
+                if tabs.find.is_open {
+                    tabs.find.focused = true;
+                }
+            } else {
+                tabs.quick_open.open(sidebar.root_folder.as_deref());
+                if tabs.find.is_open {
+                    tabs.quick_open_above_find = true;
+                    tabs.find.focused = false;
+                }
+            }
+            return true;
+        }
+
+        if tabs.quick_open.is_open && tabs.quick_open.focused {
+            let is_c = matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyC))
+                || match &event.logical_key {
+                    Key::Character(c) => c.eq_ignore_ascii_case("c") || c == "\u{3}",
+                    _ => false,
+                };
+            let is_x = matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyX))
+                || match &event.logical_key {
+                    Key::Character(c) => c.eq_ignore_ascii_case("x") || c == "\u{18}",
+                    _ => false,
+                };
+            let is_v = matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyV))
+                || match &event.logical_key {
+                    Key::Character(c) => c.eq_ignore_ascii_case("v") || c == "\u{16}",
+                    _ => false,
+                };
+            let is_a = matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyA))
+                || match &event.logical_key {
+                    Key::Character(c) => c.eq_ignore_ascii_case("a") || c == "\u{1}",
+                    _ => false,
+                };
+
+            let max_vis_chars = if char_w > 0 {
+                layout
+                    .content_right
+                    .saturating_sub(layout.content_left + 100)
+                    / char_w
+            } else {
+                20
+            };
+
+            if is_ctrl && is_c {
+                if let Some(text) = tabs.quick_open.selected_text() {
+                    if let Some(cb) = clipboard.as_mut() {
+                        let _ = cb.set_text(text);
+                    }
+                }
+                return true;
+            }
+            if is_ctrl && is_x {
+                if let Some(text) = tabs.quick_open.selected_text() {
+                    if let Some(cb) = clipboard.as_mut() {
+                        let _ = cb.set_text(text);
+                    }
+                    tabs.quick_open.delete_selection();
+                    tabs.quick_open.ensure_query_visible(max_vis_chars);
+                }
+                return true;
+            }
+            if is_ctrl && is_v {
+                if let Some(cb) = clipboard.as_mut() {
+                    if let Ok(text) = cb.get_text() {
+                        tabs.quick_open.insert_str_at_cursor(&text);
+                        tabs.quick_open.ensure_query_visible(max_vis_chars);
+                        return true;
+                    }
+                }
+                return false;
+            }
+            if is_ctrl && is_a {
+                tabs.quick_open.select_all();
+                tabs.quick_open.ensure_query_visible(max_vis_chars);
+                return true;
+            }
+
+            match &event.logical_key {
+                Key::Named(NamedKey::Enter) => {
+                    if let Some(path) = tabs.quick_open.selected_file() {
+                        tabs.quick_open.close();
+                        tabs.open_file(path);
+                    }
+                    return true;
+                }
+                Key::Named(NamedKey::ArrowUp) => {
+                    if is_shift {
+                        tabs.quick_open.move_cursor_up(true);
+                    } else {
+                        tabs.quick_open.prev_match();
+                    }
+                    tabs.quick_open.ensure_query_visible(max_vis_chars);
+                    return true;
+                }
+                Key::Named(NamedKey::ArrowDown) => {
+                    if is_shift {
+                        tabs.quick_open.move_cursor_down(true);
+                    } else {
+                        tabs.quick_open.next_match();
+                    }
+                    tabs.quick_open.ensure_query_visible(max_vis_chars);
+                    return true;
+                }
+                Key::Named(NamedKey::ArrowLeft) => {
+                    tabs.quick_open.move_cursor_left(is_shift);
+                    tabs.quick_open.ensure_query_visible(max_vis_chars);
+                    return true;
+                }
+                Key::Named(NamedKey::ArrowRight) => {
+                    tabs.quick_open.move_cursor_right(is_shift);
+                    tabs.quick_open.ensure_query_visible(max_vis_chars);
+                    return true;
+                }
+                Key::Named(NamedKey::Home) => {
+                    tabs.quick_open.move_cursor_home(is_shift);
+                    tabs.quick_open.ensure_query_visible(max_vis_chars);
+                    return true;
+                }
+                Key::Named(NamedKey::End) => {
+                    tabs.quick_open.move_cursor_end(is_shift);
+                    tabs.quick_open.ensure_query_visible(max_vis_chars);
+                    return true;
+                }
+                Key::Named(NamedKey::Backspace) => {
+                    tabs.quick_open.delete_backwards();
+                    tabs.quick_open.ensure_query_visible(max_vis_chars);
+                    return true;
+                }
+                Key::Named(NamedKey::Delete) => {
+                    tabs.quick_open.delete_forward();
+                    tabs.quick_open.ensure_query_visible(max_vis_chars);
+                    return true;
+                }
+                _ => {
+                    if !is_ctrl && !is_alt {
+                        if let Some(txt) = &event.text {
+                            for ch in txt.chars() {
+                                if !ch.is_control() {
+                                    tabs.quick_open.insert_char_at_cursor(ch);
+                                }
+                            }
+                            tabs.quick_open.ensure_query_visible(max_vis_chars);
+                            return true;
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+
         let active_idx = match tabs.active_idx {
             Some(i) => i,
             None => return false,
@@ -247,9 +419,29 @@ impl InputHandler {
             return true;
         }
         if is_ctrl && !is_shift && !is_alt && is_f {
-            let sel = buffer.selected_text();
-            find.open(find.is_replace, sel, buffer);
-            find.sync_view(buffer, layout.visible_lines, layout.visible_cols);
+            if !find.is_open {
+                let sel = buffer.selected_text();
+                find.open(find.is_replace, sel, buffer);
+                if tabs.quick_open.is_open {
+                    tabs.quick_open_above_find = false;
+                    tabs.quick_open.focused = false;
+                }
+                find.sync_view(buffer, layout.visible_lines, layout.visible_cols);
+            } else {
+                find.focused = true;
+                if tabs.quick_open.is_open {
+                    tabs.quick_open.focused = false;
+                }
+                if let Some(sel) = buffer.selected_text() {
+                    if !sel.is_empty() && !sel.contains('\n') {
+                        find.query = sel;
+                        find.query_cursor = find.query.chars().count();
+                        find.query_selection_anchor = None;
+                        find.update_matches(buffer);
+                        find.sync_view(buffer, layout.visible_lines, layout.visible_cols);
+                    }
+                }
+            }
             return true;
         }
         if is_ctrl && is_z {

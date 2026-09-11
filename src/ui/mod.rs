@@ -67,9 +67,9 @@ impl Renderer {
         total_lines: usize,
         sidebar_w: usize,
         terminal_h: usize,
-        find_h: usize,
+        bottom_bars_h: usize,
     ) -> ViewportLayout {
-        let effective_h = self.height.saturating_sub(terminal_h + find_h);
+        let effective_h = self.height.saturating_sub(terminal_h + bottom_bars_h);
         compute_layout(
             self.width,
             effective_h,
@@ -102,12 +102,13 @@ impl Renderer {
         } else {
             0
         };
+        let quick_open_h = if tabs.quick_open.is_open { 36 } else { 0 };
         let total_lines = tabs
             .active_tab()
             .map(|t| t.buffer.text().len_lines())
             .unwrap_or(0);
         let sidebar_w = if sidebar.visible { sidebar.width } else { 0 };
-        let layout = self.layout(total_lines, sidebar_w, term_h, find_h);
+        let layout = self.layout(total_lines, sidebar_w, term_h, find_h + quick_open_h);
         let mut frame = self.surface.buffer_mut().expect("Failed to get buffer");
         frame.fill(COLOR_BACKGROUND);
         render_sidebar(

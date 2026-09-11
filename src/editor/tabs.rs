@@ -1,5 +1,6 @@
 use super::buffer::EditorBuffer;
 use super::find::FindState;
+use super::quick_open::QuickOpenState;
 use std::path::{Path, PathBuf};
 
 pub struct Tab {
@@ -26,6 +27,8 @@ pub struct TabManager {
     pub hovered_modal_btn: Option<usize>,
     pub scroll_x: usize,
     pub find: FindState,
+    pub quick_open: QuickOpenState,
+    pub quick_open_above_find: bool,
 }
 
 impl Default for TabManager {
@@ -47,6 +50,8 @@ impl TabManager {
             hovered_modal_btn: None,
             scroll_x: 0,
             find: FindState::new(),
+            quick_open: QuickOpenState::new(),
+            quick_open_above_find: false,
         }
     }
 
@@ -98,10 +103,27 @@ impl TabManager {
         self.clamp_scroll(char_w, available_w);
     }
 
+    pub fn update_find_matches(&mut self) {
+        if !self.find.is_open {
+            return;
+        }
+        if let Some(idx) = self.active_idx {
+            if let Some(tab) = self.tabs.get(idx) {
+                self.find.update_matches(&tab.buffer);
+                return;
+            }
+        }
+        self.find.matches.clear();
+        self.find.active_match_idx = None;
+    }
+
     pub fn open_file(&mut self, path: PathBuf) {
         for (idx, tab) in self.tabs.iter().enumerate() {
             if tab.buffer.file_path.as_ref() == Some(&path) {
-                self.active_idx = Some(idx);
+                if self.active_idx != Some(idx) {
+                    self.active_idx = Some(idx);
+                    self.update_find_matches();
+                }
                 return;
             }
         }
@@ -117,12 +139,16 @@ impl TabManager {
             title: name,
         });
         self.active_idx = Some(self.tabs.len() - 1);
+        self.update_find_matches();
     }
 
     pub fn open_recovered(&mut self, path: PathBuf, recovery_path: &Path) {
         for (idx, tab) in self.tabs.iter().enumerate() {
             if tab.buffer.file_path.as_ref() == Some(&path) {
-                self.active_idx = Some(idx);
+                if self.active_idx != Some(idx) {
+                    self.active_idx = Some(idx);
+                    self.update_find_matches();
+                }
                 return;
             }
         }
@@ -138,6 +164,7 @@ impl TabManager {
             title: name,
         });
         self.active_idx = Some(self.tabs.len() - 1);
+        self.update_find_matches();
     }
 
     pub fn request_close(&mut self, idx: usize) {
@@ -171,6 +198,7 @@ impl TabManager {
         self.pending_close = None;
         self.hovered_tab = None;
         self.hovered_close = None;
+        self.update_find_matches();
     }
 
     pub fn close_folder_tabs(&mut self, root: &Path) -> bool {
@@ -204,6 +232,7 @@ impl TabManager {
         self.pending_close = None;
         self.hovered_tab = None;
         self.hovered_close = None;
+        self.update_find_matches();
         initial_len != self.tabs.len()
     }
 
@@ -238,6 +267,7 @@ impl TabManager {
         self.pending_close = None;
         self.hovered_tab = None;
         self.hovered_close = None;
+        self.update_find_matches();
         initial_len != self.tabs.len()
     }
 
@@ -255,6 +285,7 @@ impl TabManager {
         }
         self.hovered_tab = None;
         self.hovered_close = None;
+        self.update_find_matches();
     }
 
     pub fn close_all_tabs(&mut self) {
@@ -266,5 +297,6 @@ impl TabManager {
         self.pending_close = None;
         self.hovered_tab = None;
         self.hovered_close = None;
+        self.update_find_matches();
     }
 }
