@@ -285,7 +285,11 @@ impl InputHandler {
         if matches!(self.drag, DragState::TerminalResize { .. }) {
             return CursorIcon::RowResize;
         }
-        if self.drag == DragState::SelectingText || self.drag == DragState::TerminalSelecting {
+        if self.drag == DragState::SelectingText
+            || self.drag == DragState::TerminalSelecting
+            || self.drag == DragState::FindSelecting
+            || self.drag == DragState::QuickOpenSelecting
+        {
             return CursorIcon::Text;
         }
         if self.drag != DragState::None {
@@ -753,6 +757,83 @@ impl InputHandler {
                     }
                 }
             }
+            DragState::QuickOpenSelecting => {
+                let cw = char_w.max(1);
+                let bar_x = layout.content_left;
+                let bar_w = screen_w.saturating_sub(bar_x);
+                let close_w = "Close".len() * cw + 16;
+                let close_btn_x = (bar_x + bar_w).saturating_sub(close_w + 6);
+                let input_x = bar_x + 6;
+                let input_w = close_btn_x.saturating_sub(input_x + 6);
+                let padding = 6;
+                let click_offset = (mx as i32 - input_x as i32 - padding as i32).max(0) as usize;
+                let char_offset = click_offset / cw;
+                let max_vis_chars = if cw > 0 {
+                    input_w.saturating_sub(padding * 2) / cw
+                } else {
+                    10
+                };
+                let q_len = tabs.quick_open.query.chars().count();
+                let scroll_offset = tabs
+                    .quick_open
+                    .query_scroll
+                    .min(q_len.saturating_sub(max_vis_chars));
+                let new_cur = (scroll_offset + char_offset).min(q_len);
+                if tabs.quick_open.cursor != new_cur {
+                    tabs.quick_open.cursor = new_cur;
+                    tabs.quick_open.ensure_query_visible(max_vis_chars);
+                    changed = true;
+                }
+            }
+            DragState::FindSelecting => {
+                let cw = char_w.max(1);
+                let padding = 4;
+                let find_input_w: usize = 240;
+                let max_vis_chars = if cw > 0 {
+                    find_input_w.saturating_sub(padding * 2) / cw
+                } else {
+                    10
+                };
+                let toggle_label = if tabs.find.is_replace { "[-]" } else { "[+]" };
+                let toggle_w = (toggle_label.len() * cw + 6) as i32;
+                let toggle_x = layout.content_left as i32 + 6;
+                let scrollable_min_x = toggle_x as usize + toggle_w as usize + 6;
+                let cur_x = scrollable_min_x as i32 - tabs.find.scroll_x as i32;
+                let mx_i = mx as i32;
+
+                match tabs.find.active_field {
+                    FindField::Find => {
+                        let click_offset = (mx_i - cur_x - padding as i32).max(0) as usize;
+                        let char_offset = click_offset / cw;
+                        let q_len = tabs.find.query.chars().count();
+                        let scroll_offset = tabs
+                            .find
+                            .query_scroll
+                            .min(q_len.saturating_sub(max_vis_chars));
+                        let new_cur = (scroll_offset + char_offset).min(q_len);
+                        if tabs.find.query_cursor != new_cur {
+                            tabs.find.query_cursor = new_cur;
+                            tabs.find.ensure_query_visible(max_vis_chars);
+                            changed = true;
+                        }
+                    }
+                    FindField::Replace => {
+                        let click_offset = (mx_i - cur_x - padding as i32).max(0) as usize;
+                        let char_offset = click_offset / cw;
+                        let r_len = tabs.find.replace_text.chars().count();
+                        let scroll_offset = tabs
+                            .find
+                            .replace_scroll
+                            .min(r_len.saturating_sub(max_vis_chars));
+                        let new_cur = (scroll_offset + char_offset).min(r_len);
+                        if tabs.find.replace_cursor != new_cur {
+                            tabs.find.replace_cursor = new_cur;
+                            tabs.find.ensure_replace_visible(max_vis_chars);
+                            changed = true;
+                        }
+                    }
+                }
+            }
             DragState::None => {}
         }
         changed
@@ -809,6 +890,25 @@ impl InputHandler {
                         tab.selection_anchor = None;
                         tab.selection_end = None;
                     }
+                }
+            }
+            if self.drag == DragState::FindSelecting {
+                match tabs.find.active_field {
+                    FindField::Find => {
+                        if tabs.find.query_selection_anchor == Some(tabs.find.query_cursor) {
+                            tabs.find.query_selection_anchor = None;
+                        }
+                    }
+                    FindField::Replace => {
+                        if tabs.find.replace_selection_anchor == Some(tabs.find.replace_cursor) {
+                            tabs.find.replace_selection_anchor = None;
+                        }
+                    }
+                }
+            }
+            if self.drag == DragState::QuickOpenSelecting {
+                if tabs.quick_open.selection_anchor == Some(tabs.quick_open.cursor) {
+                    tabs.quick_open.selection_anchor = None;
                 }
             }
             self.drag = DragState::None;
@@ -1218,9 +1318,17 @@ impl InputHandler {
                 self.last_click_pos = (self.mouse_x, self.mouse_y);
 
                 match self.click_count {
-                    2 => tabs.quick_open.select_all(),
-                    3 => tabs.quick_open.select_all(),
-                    _ => {}
+                    2 => {
+                        tabs.quick_open.select_all();
+                        self.drag = DragState::None;
+                    }
+                    3 => {
+                        tabs.quick_open.select_all();
+                        self.drag = DragState::None;
+                    }
+                    _ => {
+                        self.drag = DragState::QuickOpenSelecting;
+                    }
                 }
                 return ActionEvent::Redraw;
             }
@@ -1314,9 +1422,17 @@ impl InputHandler {
                         tabs.find.query_cursor = (scroll_offset + char_offset).min(q_len);
                         tabs.find.query_selection_anchor = Some(tabs.find.query_cursor);
                         match self.click_count {
-                            2 => tabs.find.select_word(),
-                            3 => tabs.find.select_all(),
-                            _ => {}
+                            2 => {
+                                tabs.find.select_word();
+                                self.drag = DragState::None;
+                            }
+                            3 => {
+                                tabs.find.select_all();
+                                self.drag = DragState::None;
+                            }
+                            _ => {
+                                self.drag = DragState::FindSelecting;
+                            }
                         }
                         return ActionEvent::Redraw;
                     }
@@ -1451,9 +1567,17 @@ impl InputHandler {
                             tabs.find.replace_cursor = (scroll_offset + char_offset).min(r_len);
                             tabs.find.replace_selection_anchor = Some(tabs.find.replace_cursor);
                             match self.click_count {
-                                2 => tabs.find.select_word(),
-                                3 => tabs.find.select_all(),
-                                _ => {}
+                                2 => {
+                                    tabs.find.select_word();
+                                    self.drag = DragState::None;
+                                }
+                                3 => {
+                                    tabs.find.select_all();
+                                    self.drag = DragState::None;
+                                }
+                                _ => {
+                                    self.drag = DragState::FindSelecting;
+                                }
                             }
                             return ActionEvent::Redraw;
                         }
