@@ -931,11 +931,25 @@ impl EditorBuffer {
     }
 
     pub fn move_left(&mut self, sel: bool) {
+        if !sel {
+            if let Some((start, _)) = self.selection_range() {
+                self.cursor_char = start;
+                self.selection_anchor = None;
+                return;
+            }
+        }
         self.prepare_move(sel);
         self.cursor_char = self.cursor_char.saturating_sub(1);
     }
 
     pub fn move_right(&mut self, sel: bool) {
+        if !sel {
+            if let Some((_, end)) = self.selection_range() {
+                self.cursor_char = end;
+                self.selection_anchor = None;
+                return;
+            }
+        }
         self.prepare_move(sel);
         if self.cursor_char < self.text.len_chars() {
             self.cursor_char += 1;
@@ -943,23 +957,52 @@ impl EditorBuffer {
     }
 
     pub fn move_up(&mut self, sel: bool) {
+        if !sel {
+            if let Some((start, _)) = self.selection_range() {
+                self.cursor_char = start;
+                self.selection_anchor = None;
+            }
+        }
         self.prepare_move(sel);
         let (line, col) = self.cursor_pos();
         if line > 0 {
             let target = line - 1;
             let len = self.line_len(target);
             self.cursor_char = self.text.line_to_char(target) + col.min(len);
+        } else if sel {
+            self.cursor_char = 0;
         }
     }
 
     pub fn move_down(&mut self, sel: bool) {
+        if !sel {
+            if let Some((_, end)) = self.selection_range() {
+                self.cursor_char = end;
+                self.selection_anchor = None;
+            }
+        }
         self.prepare_move(sel);
         let (line, col) = self.cursor_pos();
         if line + 1 < self.text.len_lines() {
             let target = line + 1;
             let len = self.line_len(target);
             self.cursor_char = self.text.line_to_char(target) + col.min(len);
+        } else if sel {
+            self.cursor_char = self.text.len_chars();
         }
+    }
+
+    pub fn move_home(&mut self, sel: bool) {
+        self.prepare_move(sel);
+        let (line, _) = self.cursor_pos();
+        self.cursor_char = self.text.line_to_char(line);
+    }
+
+    pub fn move_end(&mut self, sel: bool) {
+        self.prepare_move(sel);
+        let (line, _) = self.cursor_pos();
+        let line_len = self.line_len(line);
+        self.cursor_char = self.text.line_to_char(line) + line_len;
     }
 
     pub fn set_cursor_at(&mut self, target_line: usize, target_col: usize) {

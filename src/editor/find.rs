@@ -362,16 +362,72 @@ impl FindState {
         }
     }
 
-    pub fn move_cursor_left(&mut self) {
-        self.clear_selection();
+    #[inline(always)]
+    fn prepare_move(&mut self, selecting: bool) {
+        if selecting {
+            match self.active_field {
+                FindField::Find => {
+                    if self.query_selection_anchor.is_none() {
+                        self.query_selection_anchor = Some(self.query_cursor);
+                    }
+                }
+                FindField::Replace => {
+                    if self.replace_selection_anchor.is_none() {
+                        self.replace_selection_anchor = Some(self.replace_cursor);
+                    }
+                }
+            }
+        } else {
+            self.clear_selection();
+        }
+    }
+
+    pub fn move_cursor_left(&mut self, sel: bool) {
+        if !sel {
+            let sel_start = match self.active_field {
+                FindField::Find => self
+                    .query_selection_anchor
+                    .map(|a| a.min(self.query_cursor)),
+                FindField::Replace => self
+                    .replace_selection_anchor
+                    .map(|a| a.min(self.replace_cursor)),
+            };
+            if let Some(start) = sel_start {
+                match self.active_field {
+                    FindField::Find => self.query_cursor = start,
+                    FindField::Replace => self.replace_cursor = start,
+                }
+                self.clear_selection();
+                return;
+            }
+        }
+        self.prepare_move(sel);
         match self.active_field {
             FindField::Find => self.query_cursor = self.query_cursor.saturating_sub(1),
             FindField::Replace => self.replace_cursor = self.replace_cursor.saturating_sub(1),
         }
     }
 
-    pub fn move_cursor_right(&mut self) {
-        self.clear_selection();
+    pub fn move_cursor_right(&mut self, sel: bool) {
+        if !sel {
+            let sel_end = match self.active_field {
+                FindField::Find => self
+                    .query_selection_anchor
+                    .map(|a| a.max(self.query_cursor)),
+                FindField::Replace => self
+                    .replace_selection_anchor
+                    .map(|a| a.max(self.replace_cursor)),
+            };
+            if let Some(end) = sel_end {
+                match self.active_field {
+                    FindField::Find => self.query_cursor = end,
+                    FindField::Replace => self.replace_cursor = end,
+                }
+                self.clear_selection();
+                return;
+            }
+        }
+        self.prepare_move(sel);
         match self.active_field {
             FindField::Find => {
                 let len = self.query.chars().count();
@@ -388,19 +444,41 @@ impl FindState {
         }
     }
 
-    pub fn move_cursor_home(&mut self) {
-        self.clear_selection();
+    pub fn move_cursor_home(&mut self, sel: bool) {
+        self.prepare_move(sel);
         match self.active_field {
             FindField::Find => self.query_cursor = 0,
             FindField::Replace => self.replace_cursor = 0,
         }
     }
 
-    pub fn move_cursor_end(&mut self) {
-        self.clear_selection();
+    pub fn move_cursor_end(&mut self, sel: bool) {
+        self.prepare_move(sel);
         match self.active_field {
             FindField::Find => self.query_cursor = self.query.chars().count(),
             FindField::Replace => self.replace_cursor = self.replace_text.chars().count(),
+        }
+    }
+
+    pub fn move_cursor_up(&mut self, sel: bool) {
+        if sel {
+            self.move_cursor_home(true);
+        } else if self.is_replace && self.active_field == FindField::Replace {
+            self.clear_selection();
+            self.active_field = FindField::Find;
+            let len = self.query.chars().count();
+            self.query_cursor = self.query_cursor.min(len);
+        }
+    }
+
+    pub fn move_cursor_down(&mut self, sel: bool) {
+        if sel {
+            self.move_cursor_end(true);
+        } else if self.is_replace && self.active_field == FindField::Find {
+            self.clear_selection();
+            self.active_field = FindField::Replace;
+            let len = self.replace_text.chars().count();
+            self.replace_cursor = self.replace_cursor.min(len);
         }
     }
 

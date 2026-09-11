@@ -367,39 +367,51 @@ impl InputHandler {
                     return true;
                 }
                 Key::Named(NamedKey::ArrowLeft) => {
-                    find.move_cursor_left();
+                    find.move_cursor_left(is_shift);
                     find.ensure_query_visible(max_vis_chars);
                     find.ensure_replace_visible(max_vis_chars);
                     return true;
                 }
                 Key::Named(NamedKey::ArrowRight) => {
-                    find.move_cursor_right();
+                    find.move_cursor_right(is_shift);
                     find.ensure_query_visible(max_vis_chars);
                     find.ensure_replace_visible(max_vis_chars);
                     return true;
                 }
                 Key::Named(NamedKey::Home) => {
-                    find.move_cursor_home();
+                    find.move_cursor_home(is_shift);
                     find.ensure_query_visible(max_vis_chars);
                     find.ensure_replace_visible(max_vis_chars);
                     return true;
                 }
                 Key::Named(NamedKey::End) => {
-                    find.move_cursor_end();
+                    find.move_cursor_end(is_shift);
                     find.ensure_query_visible(max_vis_chars);
                     find.ensure_replace_visible(max_vis_chars);
                     return true;
                 }
                 Key::Named(NamedKey::ArrowDown) => {
-                    if has_matches {
+                    if is_shift {
+                        find.move_cursor_down(true);
+                    } else if has_matches {
                         find.next_match(buffer, layout.visible_lines, layout.visible_cols);
+                    } else {
+                        find.move_cursor_down(false);
                     }
+                    find.ensure_query_visible(max_vis_chars);
+                    find.ensure_replace_visible(max_vis_chars);
                     return true;
                 }
                 Key::Named(NamedKey::ArrowUp) => {
-                    if has_matches {
+                    if is_shift {
+                        find.move_cursor_up(true);
+                    } else if has_matches {
                         find.prev_match(buffer, layout.visible_lines, layout.visible_cols);
+                    } else {
+                        find.move_cursor_up(false);
                     }
+                    find.ensure_query_visible(max_vis_chars);
+                    find.ensure_replace_visible(max_vis_chars);
                     return true;
                 }
                 Key::Named(NamedKey::Backspace) => {
@@ -473,6 +485,8 @@ impl InputHandler {
             Key::Named(NamedKey::Backspace) => buffer.delete_backwards(),
             Key::Named(NamedKey::Delete) => buffer.delete_forward(),
             Key::Named(NamedKey::Enter) => buffer.insert_newline(),
+            Key::Named(NamedKey::Home) => buffer.move_home(is_shift),
+            Key::Named(NamedKey::End) => buffer.move_end(is_shift),
             Key::Named(NamedKey::Tab) => {
                 if !is_ctrl {
                     if is_shift {
