@@ -125,7 +125,7 @@ impl App {
                 for tab in &mut self.terminal.tabs {
                     tab.cwd = p.clone();
                 }
-                self.sidebar.open_folder_with_expanded(p, &session.expanded);
+                self.sidebar.open_folder(p);
             }
         }
 
@@ -145,14 +145,6 @@ impl App {
             }
             if !opened {
                 self.tabs.open_file(stab.path);
-            }
-
-            if let Some(tab) = self.tabs.tabs.last_mut() {
-                let max_chars = tab.buffer.text().len_chars();
-                tab.buffer.cursor_char = stab.cursor.min(max_chars);
-                let max_lines = tab.buffer.text().len_lines().saturating_sub(1);
-                tab.buffer.scroll_line = stab.scroll_line.min(max_lines);
-                tab.buffer.scroll_col = stab.scroll_col.min(tab.buffer.max_line_len);
             }
         }
 

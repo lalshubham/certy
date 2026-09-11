@@ -1,10 +1,8 @@
 pub mod tree;
-
-pub use tree::{build_dir_tree, read_dir_nodes, FileNode};
-
 use crate::config::{SIDEBAR_INITIAL_WIDTH, SIDEBAR_ROW_HEIGHT, TAB_BAR_HEIGHT};
 use std::collections::HashSet;
 use std::path::PathBuf;
+pub use tree::{read_dir_nodes, FileNode};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MenuItem {
@@ -122,13 +120,6 @@ impl Sidebar {
         self.scroll_y = 0;
     }
 
-    pub fn open_folder_with_expanded(&mut self, path: PathBuf, expanded: &HashSet<PathBuf>) {
-        self.root_folder = Some(path.clone());
-        self.root_expanded = true;
-        self.nodes = build_dir_tree(&path, 0, expanded);
-        self.scroll_y = 0;
-    }
-
     pub fn close_folder(&mut self) {
         self.root_folder = None;
         self.nodes.clear();
@@ -143,7 +134,7 @@ impl Sidebar {
                 .filter(|n| n.is_dir && n.is_expanded)
                 .map(|n| n.path.clone())
                 .collect();
-            self.nodes = build_dir_tree(&root, 0, &expanded);
+            self.nodes = tree::build_dir_tree_internal(&root, 0, &expanded);
         }
     }
 
@@ -151,7 +142,6 @@ impl Sidebar {
         if idx >= self.nodes.len() || !self.nodes[idx].is_dir {
             return;
         }
-
         if self.nodes[idx].is_expanded {
             self.nodes[idx].is_expanded = false;
             let target_depth = self.nodes[idx].depth;

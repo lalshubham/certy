@@ -1,6 +1,5 @@
 use crate::editor::TabManager;
 use crate::sidebar::Sidebar;
-use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -32,6 +31,7 @@ pub fn session_path() -> Option<PathBuf> {
             return Some(PathBuf::from(appdata).join("certy").join("session.txt"));
         }
     }
+
     if let Some(config_home) = std::env::var_os("XDG_CONFIG_HOME") {
         Some(PathBuf::from(config_home).join("certy").join("session.txt"))
     } else if let Some(home) = std::env::var_os("HOME") {
@@ -66,6 +66,7 @@ pub fn save_session(sidebar: &Sidebar, tabs: &TabManager) {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
+
         let rec_dir = path.parent().map(|d| d.join("recovery"));
         if let Some(ref rd) = rec_dir {
             let _ = fs::create_dir_all(rd);
@@ -73,6 +74,7 @@ pub fn save_session(sidebar: &Sidebar, tabs: &TabManager) {
 
         let mut content = String::new();
         let (win_w, win_h, win_max) = get_window_session_state();
+
         content.push_str(&format!("window_width:{}\n", win_w));
         content.push_str(&format!("window_height:{}\n", win_h));
         content.push_str(&format!("window_maximized:{}\n", win_max));
@@ -82,24 +84,19 @@ pub fn save_session(sidebar: &Sidebar, tabs: &TabManager) {
         if let Some(ref root) = sidebar.root_folder {
             content.push_str(&format!("folder:{}\n", root.display()));
         }
-        for node in &sidebar.nodes {
-            if node.is_dir && node.is_expanded {
-                content.push_str(&format!("expanded:{}\n", node.path.display()));
-            }
-        }
+
         if let Some(active) = tabs.active_idx {
             content.push_str(&format!("active:{}\n", active));
         }
+
         for tab in &tabs.tabs {
             if let Some(ref p) = tab.buffer.file_path {
                 content.push_str(&format!("file:{}\n", p.display()));
-                content.push_str(&format!(
-                    "cursor:{},{},{}\n",
-                    tab.buffer.cursor_char, tab.buffer.scroll_line, tab.buffer.scroll_col
-                ));
+
                 if let Some(ref rd) = rec_dir {
                     let rec_name = recovery_file_name(p);
                     let rec_file = rd.join(&rec_name);
+
                     if tab.buffer.is_modified {
                         if let Ok(file) = fs::File::create(&rec_file) {
                             let mut writer = std::io::BufWriter::new(file);
@@ -115,21 +112,18 @@ pub fn save_session(sidebar: &Sidebar, tabs: &TabManager) {
                 }
             }
         }
+
         let _ = fs::write(path, content);
     }
 }
 
 pub struct LoadedTab {
     pub path: PathBuf,
-    pub cursor: usize,
-    pub scroll_line: usize,
-    pub scroll_col: usize,
     pub recovery: Option<String>,
 }
 
 pub struct LoadedSession {
     pub folder: Option<PathBuf>,
-    pub expanded: HashSet<PathBuf>,
     pub active_idx: Option<usize>,
     pub tabs: Vec<LoadedTab>,
     pub sidebar_width: Option<usize>,
@@ -145,7 +139,6 @@ pub fn load_session() -> Option<LoadedSession> {
 
     let mut session = LoadedSession {
         folder: None,
-        expanded: HashSet::new(),
         active_idx: None,
         tabs: Vec::new(),
         sidebar_width: None,
@@ -170,8 +163,6 @@ pub fn load_session() -> Option<LoadedSession> {
             session.window_maximized = m.parse().ok();
         } else if let Some(f) = line.strip_prefix("folder:") {
             session.folder = Some(PathBuf::from(f));
-        } else if let Some(e) = line.strip_prefix("expanded:") {
-            session.expanded.insert(PathBuf::from(e));
         } else if let Some(a) = line.strip_prefix("active:") {
             session.active_idx = a.parse().ok();
         } else if let Some(f) = line.strip_prefix("file:") {
@@ -180,20 +171,8 @@ pub fn load_session() -> Option<LoadedSession> {
             }
             current_tab = Some(LoadedTab {
                 path: PathBuf::from(f),
-                cursor: 0,
-                scroll_line: 0,
-                scroll_col: 0,
                 recovery: None,
             });
-        } else if let Some(c) = line.strip_prefix("cursor:") {
-            if let Some(ref mut tab) = current_tab {
-                let parts: Vec<&str> = c.split(',').collect();
-                if parts.len() == 3 {
-                    tab.cursor = parts[0].parse().unwrap_or(0);
-                    tab.scroll_line = parts[1].parse().unwrap_or(0);
-                    tab.scroll_col = parts[2].parse().unwrap_or(0);
-                }
-            }
         } else if let Some(r) = line.strip_prefix("recovery:") {
             if let Some(ref mut tab) = current_tab {
                 tab.recovery = Some(r.to_string());
@@ -204,9 +183,11 @@ pub fn load_session() -> Option<LoadedSession> {
     if let Some(tab) = current_tab.take() {
         session.tabs.push(tab);
     }
+
     if let (Some(w), Some(h)) = (session.window_width, session.window_height) {
         let max = session.window_maximized.unwrap_or(false);
         update_window_size(w, h, max);
     }
+
     Some(session)
 }

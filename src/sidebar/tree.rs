@@ -11,13 +11,17 @@ pub struct FileNode {
     pub is_expanded: bool,
 }
 
-pub fn build_dir_tree(dir: &PathBuf, depth: usize, expanded: &HashSet<PathBuf>) -> Vec<FileNode> {
+pub(crate) fn build_dir_tree_internal(
+    dir: &PathBuf,
+    depth: usize,
+    expanded: &HashSet<PathBuf>,
+) -> Vec<FileNode> {
     let mut result = Vec::new();
     let entries = read_dir_nodes(dir, depth);
     for mut node in entries {
         if node.is_dir && expanded.contains(&node.path) {
             node.is_expanded = true;
-            let children = build_dir_tree(&node.path, depth + 1, expanded);
+            let children = build_dir_tree_internal(&node.path, depth + 1, expanded);
             result.push(node);
             result.extend(children);
         } else {
