@@ -71,7 +71,6 @@ pub fn render_context_menu(
         menu.height,
         COLOR_MODAL_BORDER,
     );
-
     let row_h = menu.height / 2;
     let sidebar_label = if sidebar_visible {
         "Close Sidebar"
@@ -84,9 +83,7 @@ pub fn render_context_menu(
         "Close Files"
     };
     let has_files = tab_count > 0;
-
     let items = [(sidebar_label, true), (close_files_label, has_files)];
-
     let cap_h = (fonts.baseline_offset * 73) / 100;
     for (i, (label, enabled)) in items.iter().enumerate() {
         let item_y = menu.y + i * row_h;
@@ -144,7 +141,6 @@ fn wrap_text(text: &str, max_chars: usize) -> Vec<String> {
     let max_chars = max_chars.max(1);
     let mut lines = Vec::new();
     let mut current_line = String::new();
-
     for word in text.split_whitespace() {
         if current_line.is_empty() {
             if word.chars().count() <= max_chars {
@@ -201,28 +197,22 @@ pub fn compute_modal_layout(
     if !tabs.closing_app && !tabs.closing_files && tabs.pending_close.is_none() {
         return None;
     }
-
     let is_multi = if tabs.closing_app || tabs.closing_files {
         tabs.tabs.iter().filter(|t| t.buffer.is_modified).count() > 1
     } else {
         false
     };
-
     let btn_save_label = if is_multi { "Save All" } else { "Save" };
     let btn_discard_label = if is_multi { "Discard All" } else { "Discard" };
     let btn_cancel_label = "Cancel";
-
     let title_line = "Save changes before closing?".to_string();
-
     let pad_x = 20;
     let pad_y = 16;
     let modal_w = 440.min(screen_w.saturating_sub(16)).max(120);
     let modal_x = (screen_w.saturating_sub(modal_w)) / 2;
     let content_w = modal_w.saturating_sub(pad_x * 2).max(char_w);
     let max_chars = if char_w > 0 { content_w / char_w } else { 20 };
-
     let title_lines = wrap_text(&title_line, max_chars);
-
     let btn_h = 28;
     let spacing = 8;
     let w_save = (btn_save_label.chars().count() * char_w + 16).max(60);
@@ -230,18 +220,15 @@ pub fn compute_modal_layout(
     let w_cancel = (btn_cancel_label.chars().count() * char_w + 16).max(60);
     let total_horiz_btn_w = w_save + w_discard + w_cancel + spacing * 2;
     let can_fit_single_row = total_horiz_btn_w <= content_w;
-
     let btn_area_h = if can_fit_single_row {
         btn_h
     } else {
         btn_h * 3 + spacing * 2
     };
-
     let text_lines_h = title_lines.len() * (line_h + 2);
     let raw_modal_h = pad_y + text_lines_h + 16 + btn_area_h + pad_y;
     let modal_h = raw_modal_h.min(screen_h.saturating_sub(8)).max(60);
     let modal_y = (screen_h.saturating_sub(modal_h)) / 2;
-
     let mut text_lines = Vec::new();
     let mut cur_y = modal_y + pad_y;
     for line in title_lines {
@@ -250,7 +237,6 @@ pub fn compute_modal_layout(
         }
         cur_y += line_h + 2;
     }
-
     let mut buttons = Vec::new();
     if can_fit_single_row {
         let btns_y = modal_y + modal_h.saturating_sub(btn_h + pad_y);
@@ -313,7 +299,6 @@ pub fn compute_modal_layout(
             is_danger: false,
         });
     }
-
     Some(ModalLayout {
         x: modal_x,
         y: modal_y,
@@ -382,13 +367,11 @@ pub fn render_modal(
         modal.h,
         COLOR_MODAL_BORDER,
     );
-
     for (text, tx, ty, color) in &modal.text_lines {
         draw_string(
             fonts, frame, text, *tx as i32, *ty as i32, screen_w, screen_h, *color,
         );
     }
-
     let cap_h = (fonts.baseline_offset * 73) / 100;
     for btn in &modal.buttons {
         let is_hovered = hovered_modal_btn == Some(btn.id);
@@ -399,12 +382,10 @@ pub fn render_modal(
         } else {
             COLOR_BTN_BG
         };
-
         draw_solid_rect(frame, screen_w, screen_h, btn.x, btn.y, btn.w, btn.h, bg);
         let text_w = btn.label.chars().count() * fonts.char_width;
         let tx = btn.x + (btn.w.saturating_sub(text_w)) / 2;
         let ty = btn.y as i32 + (btn.h as i32 + cap_h as i32) / 2 - fonts.baseline_offset as i32;
-
         draw_string(
             fonts,
             frame,

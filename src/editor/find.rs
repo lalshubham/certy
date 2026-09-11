@@ -1,7 +1,8 @@
 use crate::editor::buffer::EditorBuffer;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub enum FindField {
+    #[default]
     Find,
     Replace,
 }
@@ -29,12 +30,6 @@ pub struct FindState {
     pub use_regex: bool,
 }
 
-impl Default for FindField {
-    fn default() -> Self {
-        FindField::Find
-    }
-}
-
 impl FindState {
     pub fn new() -> Self {
         Self::default()
@@ -59,13 +54,11 @@ impl FindState {
         self.focused = true;
         self.is_replace = is_replace;
         self.active_field = FindField::Find;
-
         if let Some(q) = initial_query {
             if !q.is_empty() && !q.contains('\n') {
                 self.query = q;
             }
         }
-
         self.query_cursor = self.query.chars().count();
         self.replace_cursor = self.replace_text.chars().count();
         self.query_scroll = 0;
@@ -74,7 +67,6 @@ impl FindState {
         self.replace_selection_anchor = None;
         self.hovered_btn = None;
         self.scroll_x = 0;
-
         self.update_matches(buffer);
     }
 
@@ -132,10 +124,8 @@ impl FindState {
         let re_w = "Regex".len() * cw + 16;
         let prev_w = "Previous".len() * cw + 16;
         let next_w = "Next".len() * cw + 16;
-
         let row1_w =
             240 + 6 + mc_w + 6 + ww_w + 6 + re_w + 6 + prev_w + 6 + next_w + 6 + counter_w + 12;
-
         let row2_w = if self.is_replace {
             let rep_w = "Replace".len() * cw + 16;
             let all_w = "Replace All".len() * cw + 16;
@@ -143,7 +133,6 @@ impl FindState {
         } else {
             0
         };
-
         row1_w.max(row2_w)
     }
 
@@ -208,21 +197,17 @@ impl FindState {
             FindField::Find => (&self.query, self.query_cursor),
             FindField::Replace => (&self.replace_text, self.replace_cursor),
         };
-
         let chars: Vec<char> = text.chars().collect();
         if chars.is_empty() {
             return;
         }
-
         let check_idx = if cursor >= chars.len() {
             chars.len().saturating_sub(1)
         } else {
             cursor
         };
-
         let ch = chars[check_idx];
         let is_alnum = ch.is_alphanumeric() || ch == '_';
-
         let mut start = check_idx;
         while start > 0 {
             let prev = chars[start - 1];
@@ -231,7 +216,6 @@ impl FindState {
             }
             start -= 1;
         }
-
         let mut end = check_idx;
         while end < chars.len() {
             let next = chars[end];
@@ -240,7 +224,6 @@ impl FindState {
             }
             end += 1;
         }
-
         match self.active_field {
             FindField::Find => {
                 self.query_selection_anchor = Some(start);
@@ -272,7 +255,6 @@ impl FindState {
 
     pub fn insert_char_at_cursor(&mut self, ch: char, buffer: &EditorBuffer) {
         self.delete_selection();
-
         match self.active_field {
             FindField::Find => {
                 let mut chars: Vec<char> = self.query.chars().collect();
@@ -297,10 +279,8 @@ impl FindState {
         if clean.is_empty() {
             return;
         }
-
         self.delete_selection();
         let count = clean.chars().count();
-
         match self.active_field {
             FindField::Find => {
                 let mut chars: Vec<char> = self.query.chars().collect();
@@ -331,7 +311,6 @@ impl FindState {
             }
             return;
         }
-
         match self.active_field {
             FindField::Find => {
                 if self.query_cursor > 0 {
@@ -364,7 +343,6 @@ impl FindState {
             }
             return;
         }
-
         match self.active_field {
             FindField::Find => {
                 let mut chars: Vec<char> = self.query.chars().collect();
@@ -432,27 +410,24 @@ impl FindState {
             self.active_match_idx = None;
             return;
         }
-
         let text = buffer.text();
         let compiled_re = if self.use_regex {
             compile_simple_regex(&self.query, self.match_case)
         } else {
             None
         };
-
         let q_chars: Vec<char> = if self.match_case {
             self.query.chars().collect()
         } else {
             self.query.to_lowercase().chars().collect()
         };
         let q_len = q_chars.len();
+        let mut line_chars = Vec::with_capacity(128);
 
         for line_idx in 0..text.len_lines() {
+            line_chars.clear();
             let line = text.line(line_idx);
-            let line_chars: Vec<char> = line
-                .chars()
-                .take_while(|&c| c != '\n' && c != '\r')
-                .collect();
+            line_chars.extend(line.chars().take_while(|&c| c != '\n' && c != '\r'));
             let line_start_char = text.line_to_char(line_idx);
             let line_len = line_chars.len();
 
@@ -482,7 +457,6 @@ impl FindState {
                 if q_len == 0 || line_len < q_len {
                     continue;
                 }
-
                 let mut col = 0;
                 while col + q_len <= line_len {
                     let matched = (0..q_len).all(|k| {
@@ -492,14 +466,12 @@ impl FindState {
                             line_chars[col + k].to_ascii_lowercase() == q_chars[k]
                         }
                     });
-
                     if matched {
                         let is_valid = if self.whole_word {
                             is_word_boundary(&line_chars, col, col + q_len)
                         } else {
                             true
                         };
-
                         if is_valid {
                             let start = line_start_char + col;
                             let end = start + q_len;
@@ -512,7 +484,6 @@ impl FindState {
                 }
             }
         }
-
         if self.matches.is_empty() {
             self.active_match_idx = None;
         } else {
@@ -655,12 +626,11 @@ impl CompiledRegex {
         best: &mut Option<usize>,
     ) {
         if pieces.is_empty() {
-            if best.map_or(true, |b| matched_len > b) {
+            if best.is_none_or(|b| matched_len > b) {
                 *best = Some(matched_len);
             }
             return;
         }
-
         match &pieces[0] {
             PatternPiece::Single(atom) => {
                 if char_idx < chars.len() && self.check_atom(atom, chars[char_idx]) {

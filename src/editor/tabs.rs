@@ -28,6 +28,12 @@ pub struct TabManager {
     pub find: FindState,
 }
 
+impl Default for TabManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TabManager {
     pub fn new() -> Self {
         Self {
@@ -84,7 +90,6 @@ impl TabManager {
             .get(active_idx)
             .map(|t| t.width(char_w))
             .unwrap_or(0);
-
         if start_x < self.scroll_x {
             self.scroll_x = start_x;
         } else if start_x + active_w > self.scroll_x + available_w {
@@ -100,7 +105,6 @@ impl TabManager {
                 return;
             }
         }
-
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -108,7 +112,6 @@ impl TabManager {
             .to_string();
         let mut buffer = EditorBuffer::new();
         let _ = buffer.load_file(path);
-
         self.tabs.push(Tab {
             buffer,
             title: name,
@@ -123,7 +126,6 @@ impl TabManager {
                 return;
             }
         }
-
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -131,7 +133,6 @@ impl TabManager {
             .to_string();
         let mut buffer = EditorBuffer::new();
         let _ = buffer.load_recovered(path, recovery_path);
-
         self.tabs.push(Tab {
             buffer,
             title: name,
@@ -175,7 +176,6 @@ impl TabManager {
     pub fn close_folder_tabs(&mut self, root: &Path) -> bool {
         let prev_active_path = self.active_tab().and_then(|t| t.buffer.file_path.clone());
         let initial_len = self.tabs.len();
-
         self.tabs.retain(|tab| {
             if let Some(ref p) = tab.buffer.file_path {
                 !p.starts_with(root)
@@ -183,7 +183,6 @@ impl TabManager {
                 true
             }
         });
-
         if self.tabs.is_empty() {
             self.active_idx = None;
             self.scroll_x = 0;
@@ -202,18 +201,15 @@ impl TabManager {
                 self.active_idx = Some(self.tabs.len().saturating_sub(1));
             }
         }
-
         self.pending_close = None;
         self.hovered_tab = None;
         self.hovered_close = None;
-
         initial_len != self.tabs.len()
     }
 
     pub fn close_missing_files(&mut self) -> bool {
         let prev_active_path = self.active_tab().and_then(|t| t.buffer.file_path.clone());
         let initial_len = self.tabs.len();
-
         self.tabs.retain(|tab| {
             if let Some(ref p) = tab.buffer.file_path {
                 p.exists()
@@ -221,7 +217,6 @@ impl TabManager {
                 true
             }
         });
-
         if self.tabs.is_empty() {
             self.active_idx = None;
             self.scroll_x = 0;
@@ -240,11 +235,9 @@ impl TabManager {
                 self.active_idx = Some(self.tabs.len().saturating_sub(1));
             }
         }
-
         self.pending_close = None;
         self.hovered_tab = None;
         self.hovered_close = None;
-
         initial_len != self.tabs.len()
     }
 

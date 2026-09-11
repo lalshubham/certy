@@ -83,7 +83,6 @@ impl Terminal {
             .get(self.active_idx)
             .map(|t| t.width(char_w))
             .unwrap_or(0);
-
         if start_x < self.tab_scroll_x {
             self.tab_scroll_x = start_x;
         } else if start_x + active_w > self.tab_scroll_x + available_w {
@@ -99,7 +98,6 @@ impl Terminal {
             .and_then(|s| s.to_str())
             .unwrap_or("terminal")
             .to_string();
-
         let tab = TerminalTab::new(name, self.default_cwd.clone(), rows, cols);
         self.tabs.push(tab);
         self.active_idx = self.tabs.len() - 1;
@@ -113,7 +111,6 @@ impl Terminal {
         }
         self.tabs[idx].kill_process();
         self.tabs.remove(idx);
-
         if self.tabs.is_empty() {
             self.is_open = false;
             self.focused = false;

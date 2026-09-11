@@ -17,6 +17,12 @@ pub struct EditorBuffer {
     history: History,
 }
 
+impl Default for EditorBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(PartialEq, Eq)]
 enum CharCategory {
     Word,
@@ -155,7 +161,6 @@ impl EditorBuffer {
                 '\'' => Some('\''),
                 _ => None,
             };
-
             if let Some(close_ch) = matching_close {
                 let selected = self.text.slice(start..end).to_string();
                 let wrapped = format!("{ch}{selected}{close_ch}");
@@ -176,17 +181,14 @@ impl EditorBuffer {
                 return;
             }
         }
-
-        if matches!(ch, ')' | ']' | '}' | '"' | '\'') {
-            if self.cursor_char < self.text.len_chars() && self.selection_anchor.is_none() {
-                let next_ch = self.text.char(self.cursor_char);
-                if next_ch == ch {
-                    self.cursor_char += 1;
-                    return;
-                }
-            }
+        if matches!(ch, ')' | ']' | '}' | '"' | '\'')
+            && self.cursor_char < self.text.len_chars()
+            && self.selection_anchor.is_none()
+            && self.text.char(self.cursor_char) == ch
+        {
+            self.cursor_char += 1;
+            return;
         }
-
         let pair = match ch {
             '(' => Some("()"),
             '[' => Some("[]"),
@@ -206,7 +208,6 @@ impl EditorBuffer {
             }
             _ => None,
         };
-
         if let Some(p) = pair {
             self.delete_selection();
             self.text.insert(self.cursor_char, p);
@@ -249,11 +250,9 @@ impl EditorBuffer {
 
     pub fn insert_newline(&mut self) {
         self.delete_selection();
-
         let (line_idx, col_idx) = self.cursor_pos();
         let line_start = self.text.line_to_char(line_idx);
         let line = self.text.line(line_idx);
-
         let mut indent = String::new();
         for ch in line.chars() {
             if ch == ' ' || ch == '\t' {
@@ -262,28 +261,24 @@ impl EditorBuffer {
                 break;
             }
         }
-
         if col_idx < indent.chars().count() {
             indent.clear();
         }
-
         let prefix = self.text.slice(line_start..self.cursor_char).to_string();
         let extra_indent = prefix.trim_end().ends_with('{');
-
         let next_is_closing_brace = if self.cursor_char < self.text.len_chars() {
             self.text.char(self.cursor_char) == '}'
         } else {
             false
         };
 
+        let mut insertion = String::with_capacity(indent.len() * 2 + 16);
         if extra_indent && next_is_closing_brace {
-            let mut insertion = String::from("\n");
+            insertion.push('\n');
             insertion.push_str(&indent);
             insertion.push_str("    \n");
             insertion.push_str(&indent);
-
             let cursor_target = self.cursor_char + 1 + indent.chars().count() + 4;
-
             self.text.insert(self.cursor_char, &insertion);
             self.history.record(EditAction::Insert {
                 char_idx: self.cursor_char,
@@ -291,12 +286,11 @@ impl EditorBuffer {
             });
             self.cursor_char = cursor_target;
         } else {
-            let mut insertion = String::from("\n");
+            insertion.push('\n');
             insertion.push_str(&indent);
             if extra_indent {
                 insertion.push_str("    ");
             }
-
             let char_count = insertion.chars().count();
             self.text.insert(self.cursor_char, &insertion);
             self.history.record(EditAction::Insert {
@@ -305,7 +299,6 @@ impl EditorBuffer {
             });
             self.cursor_char += char_count;
         }
-
         self.is_modified = true;
         self.recompute_max_line_len();
     }
@@ -325,9 +318,7 @@ impl EditorBuffer {
                 (line, line)
             }
         };
-
         let is_multi_line = end_line > start_line;
-
         for line in (start_line..=end_line).rev() {
             if is_multi_line && self.line_len(line) == 0 {
                 continue;
@@ -338,20 +329,15 @@ impl EditorBuffer {
                 char_idx: line_start,
                 text: "    ".to_string(),
             });
-
-            if self.cursor_char > line_start {
-                self.cursor_char += 4;
-            } else if self.cursor_char == line_start && self.selection_anchor.is_none() {
+            if self.cursor_char >= line_start {
                 self.cursor_char += 4;
             }
-
             if let Some(ref mut anchor) = self.selection_anchor {
                 if *anchor > line_start {
                     *anchor += 4;
                 }
             }
         }
-
         self.is_modified = true;
         self.recompute_max_line_len();
     }
@@ -371,7 +357,6 @@ impl EditorBuffer {
                 (line, line)
             }
         };
-
         for line in (start_line..=end_line).rev() {
             let line_start = self.text.line_to_char(line);
             let line_slice = self.text.line(line);
@@ -391,11 +376,9 @@ impl EditorBuffer {
                     break;
                 }
             }
-
             if remove_count == 0 {
                 continue;
             }
-
             let remove_range = line_start..line_start + remove_count;
             let removed_text = self.text.slice(remove_range.clone()).to_string();
             self.text.remove(remove_range);
@@ -403,13 +386,11 @@ impl EditorBuffer {
                 char_idx: line_start,
                 text: removed_text,
             });
-
             if self.cursor_char >= line_start + remove_count {
                 self.cursor_char -= remove_count;
             } else if self.cursor_char > line_start {
                 self.cursor_char = line_start;
             }
-
             if let Some(ref mut anchor) = self.selection_anchor {
                 if *anchor >= line_start + remove_count {
                     *anchor -= remove_count;
@@ -418,7 +399,6 @@ impl EditorBuffer {
                 }
             }
         }
-
         self.is_modified = true;
         self.recompute_max_line_len();
     }
@@ -438,7 +418,6 @@ impl EditorBuffer {
                 (line, line)
             }
         };
-
         let line_start = self.text.line_to_char(start_line);
         let has_next = end_line + 1 < self.text.len_lines();
         let line_end = if has_next {
@@ -446,25 +425,21 @@ impl EditorBuffer {
         } else {
             self.text.len_chars()
         };
-
         let mut text = self.text.slice(line_start..line_end).to_string();
         let insert_pos = line_end;
         if !has_next && !text.ends_with('\n') {
             text.insert(0, '\n');
         }
-
         let len = text.chars().count();
         self.text.insert(insert_pos, &text);
         self.history.record(EditAction::Insert {
             char_idx: insert_pos,
             text,
         });
-
         self.cursor_char += len;
         if let Some(ref mut anchor) = self.selection_anchor {
             *anchor += len;
         }
-
         self.is_modified = true;
         self.recompute_max_line_len();
     }
@@ -484,11 +459,9 @@ impl EditorBuffer {
                 (line, line)
             }
         };
-
         if start_line == 0 {
             return;
         }
-
         let prev_line = start_line - 1;
         let prev_start = self.text.line_to_char(prev_line);
         let block_start = self.text.line_to_char(start_line);
@@ -498,16 +471,13 @@ impl EditorBuffer {
         } else {
             self.text.len_chars()
         };
-
         let prev_text = self.text.slice(prev_start..block_start).to_string();
         let block_text = self.text.slice(block_start..block_end).to_string();
-
         let newline_seq = if prev_text.ends_with("\r\n") {
             "\r\n"
         } else {
             "\n"
         };
-
         let (new_block, new_prev) = if !block_text.ends_with('\n') && prev_text.ends_with('\n') {
             let prev_trimmed = &prev_text[..prev_text.len() - newline_seq.len()];
             (
@@ -517,31 +487,25 @@ impl EditorBuffer {
         } else {
             (block_text, prev_text)
         };
-
         let combined = format!("{new_block}{new_prev}");
         let total_range = prev_start..block_end;
         let old_text = self.text.slice(total_range.clone()).to_string();
-
         self.text.remove(total_range);
         self.history.record(EditAction::Delete {
             char_idx: prev_start,
             text: old_text,
         });
-
         self.text.insert(prev_start, &combined);
         self.history.record(EditAction::Insert {
             char_idx: prev_start,
             text: combined,
         });
-
         let offset_in_block = self.cursor_char.saturating_sub(block_start);
         self.cursor_char = prev_start + offset_in_block;
-
         if let Some(ref mut anchor) = self.selection_anchor {
             let anchor_offset = anchor.saturating_sub(block_start);
             *anchor = prev_start + anchor_offset;
         }
-
         self.is_modified = true;
         self.recompute_max_line_len();
     }
@@ -561,12 +525,10 @@ impl EditorBuffer {
                 (line, line)
             }
         };
-
         let next_line = end_line + 1;
         if next_line >= self.text.len_lines() {
             return;
         }
-
         let block_start = self.text.line_to_char(start_line);
         let next_line_start = self.text.line_to_char(next_line);
         let has_after_next = next_line + 1 < self.text.len_lines();
@@ -575,16 +537,13 @@ impl EditorBuffer {
         } else {
             self.text.len_chars()
         };
-
         let block_text = self.text.slice(block_start..next_line_start).to_string();
         let next_text = self.text.slice(next_line_start..next_line_end).to_string();
-
         let newline_seq = if block_text.ends_with("\r\n") {
             "\r\n"
         } else {
             "\n"
         };
-
         let (new_next, new_block) = if !next_text.ends_with('\n') && block_text.ends_with('\n') {
             let block_trimmed = &block_text[..block_text.len() - newline_seq.len()];
             (
@@ -594,32 +553,26 @@ impl EditorBuffer {
         } else {
             (next_text, block_text)
         };
-
         let combined = format!("{new_next}{new_block}");
         let total_range = block_start..next_line_end;
         let old_text = self.text.slice(total_range.clone()).to_string();
-
         self.text.remove(total_range);
         self.history.record(EditAction::Delete {
             char_idx: block_start,
             text: old_text,
         });
-
         self.text.insert(block_start, &combined);
         self.history.record(EditAction::Insert {
             char_idx: block_start,
             text: combined,
         });
-
         let new_block_start = block_start + new_next.chars().count();
         let offset_in_block = self.cursor_char.saturating_sub(block_start);
         self.cursor_char = new_block_start + offset_in_block;
-
         if let Some(ref mut anchor) = self.selection_anchor {
             let anchor_offset = anchor.saturating_sub(block_start);
             *anchor = new_block_start + anchor_offset;
         }
-
         self.is_modified = true;
         self.recompute_max_line_len();
     }
@@ -629,7 +582,6 @@ impl EditorBuffer {
         if self.text.len_chars() == 0 {
             return;
         }
-
         let (start_line, end_line) = match self.selection_range() {
             Some((start, end)) => {
                 let s_line = self.text.char_to_line(start);
@@ -644,7 +596,6 @@ impl EditorBuffer {
                 (line, line)
             }
         };
-
         let (del_start, del_end) = if end_line + 1 < total_lines {
             (
                 self.text.line_to_char(start_line),
@@ -658,7 +609,6 @@ impl EditorBuffer {
         } else {
             (0, self.text.len_chars())
         };
-
         if del_start < del_end {
             let removed = self.text.slice(del_start..del_end).to_string();
             self.text.remove(del_start..del_end);
@@ -667,7 +617,6 @@ impl EditorBuffer {
                 text: removed,
             });
         }
-
         self.selection_anchor = None;
         self.cursor_char = del_start.min(self.text.len_chars());
         self.is_modified = true;
@@ -680,7 +629,6 @@ impl EditorBuffer {
             Some(p) => p,
             None => return,
         };
-
         if self.text.len_chars() == 0 {
             let comment_str = format!("{prefix} ");
             let comment_len = comment_str.chars().count();
@@ -694,7 +642,6 @@ impl EditorBuffer {
             self.recompute_max_line_len();
             return;
         }
-
         let (start_line, end_line) = match self.selection_range() {
             Some((start, end)) => {
                 let s_line = self.text.char_to_line(start);
@@ -709,10 +656,8 @@ impl EditorBuffer {
                 (line, line)
             }
         };
-
         let mut has_non_empty = false;
         let mut all_commented = true;
-
         for line in start_line..=end_line {
             let line_len = self.line_len(line);
             let line_start = self.text.line_to_char(line);
@@ -725,7 +670,6 @@ impl EditorBuffer {
                 .take_while(|&c| c == ' ' || c == '\t')
                 .count();
             let trimmed = &line_str[indent_len..];
-
             if !trimmed.is_empty() {
                 has_non_empty = true;
                 if !trimmed.starts_with(prefix) {
@@ -734,11 +678,9 @@ impl EditorBuffer {
                 }
             }
         }
-
         if !has_non_empty {
             all_commented = false;
         }
-
         if all_commented {
             for line in (start_line..=end_line).rev() {
                 let line_len = self.line_len(line);
@@ -755,7 +697,6 @@ impl EditorBuffer {
                     .take_while(|&c| c == ' ' || c == '\t')
                     .count();
                 let trimmed = &line_str[indent_len..];
-
                 if trimmed.starts_with(prefix) {
                     let del_start = line_start + indent_len;
                     let del_count = if trimmed[prefix.len()..].starts_with(' ') {
@@ -763,7 +704,6 @@ impl EditorBuffer {
                     } else {
                         prefix.chars().count()
                     };
-
                     let del_range = del_start..del_start + del_count;
                     let removed = self.text.slice(del_range.clone()).to_string();
                     self.text.remove(del_range);
@@ -771,13 +711,11 @@ impl EditorBuffer {
                         char_idx: del_start,
                         text: removed,
                     });
-
                     if self.cursor_char >= del_start + del_count {
                         self.cursor_char -= del_count;
                     } else if self.cursor_char > del_start {
                         self.cursor_char = del_start;
                     }
-
                     if let Some(ref mut anchor) = self.selection_anchor {
                         if *anchor >= del_start + del_count {
                             *anchor -= del_count;
@@ -790,7 +728,6 @@ impl EditorBuffer {
         } else {
             let comment_str = format!("{prefix} ");
             let comment_len = comment_str.chars().count();
-
             for line in (start_line..=end_line).rev() {
                 let line_len = self.line_len(line);
                 if start_line != end_line && line_len == 0 {
@@ -806,17 +743,14 @@ impl EditorBuffer {
                     .take_while(|&c| c == ' ' || c == '\t')
                     .count();
                 let ins_pos = line_start + indent_len;
-
                 self.text.insert(ins_pos, &comment_str);
                 self.history.record(EditAction::Insert {
                     char_idx: ins_pos,
                     text: comment_str.clone(),
                 });
-
                 if self.cursor_char >= ins_pos {
                     self.cursor_char += comment_len;
                 }
-
                 if let Some(ref mut anchor) = self.selection_anchor {
                     if *anchor >= ins_pos {
                         *anchor += comment_len;
@@ -824,7 +758,6 @@ impl EditorBuffer {
                 }
             }
         }
-
         self.is_modified = true;
         self.recompute_max_line_len();
     }
@@ -851,7 +784,6 @@ impl EditorBuffer {
                     return;
                 }
             }
-
             self.cursor_char -= 1;
             let removed = self.text.char(self.cursor_char).to_string();
             self.text.remove(self.cursor_char..self.cursor_char + 1);
@@ -895,19 +827,15 @@ impl EditorBuffer {
             self.selection_anchor = None;
             return;
         }
-
         let line_start = self.text.line_to_char(line_idx);
         let line_end = line_start + line_len;
-
         let check_idx = if self.cursor_char >= line_end {
             line_end.saturating_sub(1)
         } else {
             self.cursor_char
         };
-
         let ch = self.text.char(check_idx);
         let target_cat = categorize_char(ch);
-
         let mut start = check_idx;
         while start > line_start {
             let prev_ch = self.text.char(start - 1);
@@ -916,7 +844,6 @@ impl EditorBuffer {
             }
             start -= 1;
         }
-
         let mut end = check_idx + 1;
         while end < line_end {
             let next_ch = self.text.char(end);
@@ -925,7 +852,6 @@ impl EditorBuffer {
             }
             end += 1;
         }
-
         self.selection_anchor = Some(start);
         self.cursor_char = end;
     }
@@ -939,7 +865,6 @@ impl EditorBuffer {
         let line_len = self.line_len(line_idx);
         let line_start = self.text.line_to_char(line_idx);
         let line_end = line_start + line_len;
-
         if line_len > 0 {
             self.selection_anchor = Some(line_start);
             self.cursor_char = line_end;

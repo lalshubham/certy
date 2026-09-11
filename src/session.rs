@@ -1,7 +1,8 @@
 use crate::editor::TabManager;
 use crate::sidebar::Sidebar;
+use std::fmt::Write as FmtWrite;
 use std::fs;
-use std::io::Write;
+use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -31,7 +32,6 @@ pub fn session_path() -> Option<PathBuf> {
             return Some(PathBuf::from(appdata).join("certy").join("session.txt"));
         }
     }
-
     if let Some(config_home) = std::env::var_os("XDG_CONFIG_HOME") {
         Some(PathBuf::from(config_home).join("certy").join("session.txt"))
     } else if let Some(home) = std::env::var_os("HOME") {
@@ -62,59 +62,54 @@ pub fn recovery_file_name(path: &Path) -> String {
 }
 
 pub fn save_session(sidebar: &Sidebar, tabs: &TabManager) {
-    if let Some(path) = session_path() {
-        if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
+    let Some(path) = session_path() else { return };
 
-        let rec_dir = path.parent().map(|d| d.join("recovery"));
-        if let Some(ref rd) = rec_dir {
-            let _ = fs::create_dir_all(rd);
-        }
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let rec_dir = path.parent().map(|d| d.join("recovery"));
+    if let Some(ref rd) = rec_dir {
+        let _ = fs::create_dir_all(rd);
+    }
 
-        let mut content = String::new();
-        let (win_w, win_h, win_max) = get_window_session_state();
+    let mut content = String::with_capacity(512);
+    let (win_w, win_h, win_max) = get_window_session_state();
+    let _ = writeln!(content, "window_width:{win_w}");
+    let _ = writeln!(content, "window_height:{win_h}");
+    let _ = writeln!(content, "window_maximized:{win_max}");
+    let _ = writeln!(content, "sidebar_width:{}", sidebar.width);
+    let _ = writeln!(content, "sidebar_visible:{}", sidebar.visible);
 
-        content.push_str(&format!("window_width:{}\n", win_w));
-        content.push_str(&format!("window_height:{}\n", win_h));
-        content.push_str(&format!("window_maximized:{}\n", win_max));
-        content.push_str(&format!("sidebar_width:{}\n", sidebar.width));
-        content.push_str(&format!("sidebar_visible:{}\n", sidebar.visible));
+    if let Some(ref root) = sidebar.root_folder {
+        let _ = writeln!(content, "folder:{}", root.display());
+    }
+    if let Some(active) = tabs.active_idx {
+        let _ = writeln!(content, "active:{active}");
+    }
 
-        if let Some(ref root) = sidebar.root_folder {
-            content.push_str(&format!("folder:{}\n", root.display()));
-        }
-
-        if let Some(active) = tabs.active_idx {
-            content.push_str(&format!("active:{}\n", active));
-        }
-
-        for tab in &tabs.tabs {
-            if let Some(ref p) = tab.buffer.file_path {
-                content.push_str(&format!("file:{}\n", p.display()));
-
-                if let Some(ref rd) = rec_dir {
-                    let rec_name = recovery_file_name(p);
-                    let rec_file = rd.join(&rec_name);
-
-                    if tab.buffer.is_modified {
-                        if let Ok(file) = fs::File::create(&rec_file) {
-                            let mut writer = std::io::BufWriter::new(file);
-                            for chunk in tab.buffer.text().chunks() {
-                                let _ = writer.write_all(chunk.as_bytes());
-                            }
-                            let _ = writer.flush();
+    for tab in &tabs.tabs {
+        if let Some(ref p) = tab.buffer.file_path {
+            let _ = writeln!(content, "file:{}", p.display());
+            if let Some(ref rd) = rec_dir {
+                let rec_name = recovery_file_name(p);
+                let rec_file = rd.join(&rec_name);
+                if tab.buffer.is_modified {
+                    if let Ok(file) = fs::File::create(&rec_file) {
+                        let mut writer = std::io::BufWriter::new(file);
+                        for chunk in tab.buffer.text().chunks() {
+                            let _ = writer.write_all(chunk.as_bytes());
                         }
-                        content.push_str(&format!("recovery:{}\n", rec_name));
-                    } else if rec_file.exists() {
-                        let _ = fs::remove_file(&rec_file);
+                        let _ = writer.flush();
                     }
+                    let _ = writeln!(content, "recovery:{rec_name}");
+                } else if rec_file.exists() {
+                    let _ = fs::remove_file(&rec_file);
                 }
             }
         }
-
-        let _ = fs::write(path, content);
     }
+
+    let _ = fs::write(path, content);
 }
 
 pub struct LoadedTab {
@@ -136,7 +131,6 @@ pub struct LoadedSession {
 pub fn load_session() -> Option<LoadedSession> {
     let path = session_path()?;
     let content = fs::read_to_string(path).ok()?;
-
     let mut session = LoadedSession {
         folder: None,
         active_idx: None,
@@ -147,7 +141,6 @@ pub fn load_session() -> Option<LoadedSession> {
         window_height: None,
         window_maximized: None,
     };
-
     let mut current_tab: Option<LoadedTab> = None;
 
     for line in content.lines() {

@@ -1,6 +1,6 @@
 use super::languages::Language;
 
-pub fn is_keyword(word: &str, lang: Language) -> bool {
+pub(super) fn is_keyword(word: &str, lang: Language) -> bool {
     match lang {
         Language::Rust => matches!(
             word,
@@ -435,7 +435,7 @@ pub fn is_keyword(word: &str, lang: Language) -> bool {
     }
 }
 
-pub fn is_builtin_type(word: &str, lang: Language) -> bool {
+pub(super) fn is_builtin_type(word: &str, lang: Language) -> bool {
     match lang {
         Language::Rust => matches!(
             word,

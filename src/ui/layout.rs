@@ -39,18 +39,19 @@ pub fn compute_layout(
     let content_left = sidebar_w;
     let content_right = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
     let content_bottom = effective_h.saturating_sub(SCROLLBAR_THICKNESS);
-
-    let digits = total_lines.to_string().len().max(3);
+    let digits = if total_lines == 0 {
+        1
+    } else {
+        (total_lines.ilog10() + 1) as usize
+    }
+    .max(3);
     let gutter_width = GUTTER_PADDING * 2 + digits * char_w;
     let code_x = content_left + gutter_width + CODE_LEFT_MARGIN;
     let bar_start_x = content_left + gutter_width + 1;
-
     let code_w = content_right.saturating_sub(code_x);
     let code_h = content_bottom.saturating_sub(TAB_BAR_HEIGHT + TOP_PADDING);
-
     let visible_cols = if char_w > 0 { code_w / char_w } else { 0 };
     let visible_lines = if line_h > 0 { code_h / line_h } else { 0 };
-
     ViewportLayout {
         content_left,
         content_right,

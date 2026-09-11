@@ -11,6 +11,12 @@ pub struct History {
     redo_stack: Vec<EditAction>,
 }
 
+impl Default for History {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl History {
     pub fn new() -> Self {
         Self {

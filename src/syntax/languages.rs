@@ -32,7 +32,7 @@ impl Language {
             | Language::Go
             | Language::Php => Some("//"),
             Language::Python | Language::Bash => Some("#"),
-            _ => Some("//"),
+            _ => None,
         }
     }
 

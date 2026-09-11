@@ -83,7 +83,6 @@ fn update_window_title(
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         format!("{} - Certy", to_full_path(&cwd))
     };
-
     if *last_title != title {
         window.set_title(&title);
         *last_title = title;
@@ -109,16 +108,13 @@ impl App {
             Some(s) => s,
             None => return,
         };
-
         if let Some(w) = session.sidebar_width {
             self.sidebar.width = w.max(SIDEBAR_MIN_WIDTH);
         }
         if let Some(v) = session.sidebar_visible {
             self.sidebar.visible = v;
         }
-
         let rec_dir = recovery_dir();
-
         if let Some(p) = session.folder {
             if p.is_dir() {
                 self.terminal.default_cwd = p.clone();
@@ -128,7 +124,6 @@ impl App {
                 self.sidebar.open_folder(p);
             }
         }
-
         for stab in session.tabs {
             if !stab.path.is_file() {
                 continue;
@@ -147,7 +142,6 @@ impl App {
                 self.tabs.open_file(stab.path);
             }
         }
-
         if let Some(act) = session.active_idx {
             if act < self.tabs.tabs.len() {
                 self.tabs.active_idx = Some(act);
@@ -157,35 +151,40 @@ impl App {
 
     fn sync_filesystem(&mut self) -> bool {
         let mut changed = false;
-
-        if let Some(ref root) = self.sidebar.root_folder.clone() {
+        let root_to_close = if let Some(ref root) = self.sidebar.root_folder {
             if !root.exists() {
-                if let Some(rec_dir) = recovery_dir() {
-                    for tab in &self.tabs.tabs {
-                        if let Some(ref p) = tab.buffer.file_path {
-                            if p.starts_with(root) {
-                                let _ = fs::remove_file(rec_dir.join(recovery_file_name(p)));
-                            }
-                        }
-                    }
-                }
-                self.tabs.close_folder_tabs(root);
-                self.sidebar.close_folder();
-
-                let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                if !self.terminal.default_cwd.exists() {
-                    self.terminal.default_cwd = fallback_cwd.clone();
-                }
-                for tab in &mut self.terminal.tabs {
-                    if !tab.cwd.exists() {
-                        tab.cwd = fallback_cwd.clone();
-                    }
-                }
-                changed = true;
+                Some(root.clone())
             } else {
                 self.sidebar.refresh_folder();
                 changed = true;
+                None
             }
+        } else {
+            None
+        };
+
+        if let Some(root) = root_to_close {
+            if let Some(rec_dir) = recovery_dir() {
+                for tab in &self.tabs.tabs {
+                    if let Some(ref p) = tab.buffer.file_path {
+                        if p.starts_with(&root) {
+                            let _ = fs::remove_file(rec_dir.join(recovery_file_name(p)));
+                        }
+                    }
+                }
+            }
+            self.tabs.close_folder_tabs(&root);
+            self.sidebar.close_folder();
+            let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            if !self.terminal.default_cwd.exists() {
+                self.terminal.default_cwd = fallback_cwd.clone();
+            }
+            for tab in &mut self.terminal.tabs {
+                if !tab.cwd.exists() {
+                    tab.cwd = fallback_cwd.clone();
+                }
+            }
+            changed = true;
         }
 
         if let Some(rec_dir) = recovery_dir() {
@@ -197,11 +196,9 @@ impl App {
                 }
             }
         }
-
         if self.tabs.close_missing_files() {
             changed = true;
         }
-
         if changed {
             save_session(&self.sidebar, &self.tabs);
             if let Some(ref r) = self.renderer {
@@ -218,7 +215,6 @@ impl App {
                 update_window_title(w, &self.tabs, &self.sidebar, &mut self.current_title);
             }
         }
-
         changed
     }
 }
@@ -255,9 +251,7 @@ impl ApplicationHandler<AppEvent> for App {
             .map(|r| r.font_manager.line_height)
             .unwrap_or(17);
         let vis_rows = self.terminal.vis_rows(lh);
-
         let output_updated = self.terminal.poll_output(vis_rows);
-
         if self.terminal.needs_fs_refresh {
             self.terminal.needs_fs_refresh = false;
             self.sync_filesystem();
@@ -269,7 +263,6 @@ impl ApplicationHandler<AppEvent> for App {
                 w.request_redraw();
             }
         }
-
         if self.terminal.is_open && self.terminal.has_running_process() {
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(16),
@@ -362,7 +355,6 @@ impl ApplicationHandler<AppEvent> for App {
             Some(w) if w.id() == window_id => w.clone(),
             _ => return,
         };
-
         let (cw, lh, screen_w, screen_h) = match &self.renderer {
             Some(r) => (
                 r.font_manager.char_width,
@@ -372,7 +364,6 @@ impl ApplicationHandler<AppEvent> for App {
             ),
             None => return,
         };
-
         let term_h = if self.terminal.is_open {
             self.terminal.height
         } else {
@@ -405,7 +396,6 @@ impl ApplicationHandler<AppEvent> for App {
             total_lines,
             sidebar_w,
         );
-
         match event {
             WindowEvent::RedrawRequested => {
                 if let Some(ref mut renderer) = self.renderer {
@@ -417,31 +407,25 @@ impl ApplicationHandler<AppEvent> for App {
                     );
                 }
             }
-
             WindowEvent::Resized(size) => {
                 let is_max = window.is_maximized();
                 let logical = size.to_logical::<f64>(window.scale_factor());
                 update_window_size(logical.width, logical.height, is_max);
                 save_session(&self.sidebar, &self.tabs);
-
                 if let Some(ref mut renderer) = self.renderer {
                     renderer.resize(size.width, size.height);
                 }
-
                 let screen_w = size.width as usize;
                 let screen_h = size.height as usize;
-
                 let min_editor_w = 120;
                 let max_sidebar_w = screen_w.saturating_sub(min_editor_w);
                 let min_sidebar_w = SIDEBAR_MIN_WIDTH.min(max_sidebar_w);
                 self.sidebar.width = self.sidebar.width.clamp(min_sidebar_w, max_sidebar_w);
-
                 let effective_sidebar_w = if self.sidebar.visible {
                     self.sidebar.width
                 } else {
                     0
                 };
-
                 if self.terminal.is_open {
                     let min_editor_h = TAB_BAR_HEIGHT + 40;
                     let max_term_h = screen_h.saturating_sub(min_editor_h);
@@ -451,7 +435,6 @@ impl ApplicationHandler<AppEvent> for App {
                     } else {
                         self.terminal.height.clamp(min_term_h, max_term_h)
                     };
-
                     let vis_rows = self.terminal.vis_rows(lh);
                     let text_left = effective_sidebar_w + 14;
                     let text_right = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
@@ -462,16 +445,13 @@ impl ApplicationHandler<AppEvent> for App {
                     };
                     self.terminal.resize_active_pty(vis_rows, vis_cols);
                 }
-
                 let avail_w = screen_w.saturating_sub(effective_sidebar_w);
                 self.tabs.clamp_scroll(cw, avail_w);
                 let find_open = self.tabs.find.is_open;
                 let find_rep = self.tabs.find.is_replace;
-
                 let close_w = "Close".len() * cw + 16;
                 let strip_w = screen_w.saturating_sub(effective_sidebar_w + close_w + 14);
                 self.tabs.find.clamp_scroll(cw, strip_w);
-
                 if let Some(tab) = self.tabs.active_tab_mut() {
                     let cur_term_h = if self.terminal.is_open {
                         self.terminal.height
@@ -497,20 +477,16 @@ impl ApplicationHandler<AppEvent> for App {
                     );
                     tab.buffer.fit_view(l.visible_lines, l.visible_cols);
                 }
-
                 let new_btn_w = "NEW".len() * cw + 20;
                 let strip_min_x = effective_sidebar_w + new_btn_w;
                 let strip_max_x = screen_w;
                 let available_tab_w = strip_max_x.saturating_sub(strip_min_x);
                 self.terminal.clamp_tab_scroll(cw, available_tab_w);
-
                 window.request_redraw();
             }
-
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.input.modifiers = modifiers.state();
             }
-
             WindowEvent::CursorMoved { position, .. } => {
                 if self.input.handle_cursor_move(
                     position.x,
@@ -526,21 +502,8 @@ impl ApplicationHandler<AppEvent> for App {
                 ) {
                     window.request_redraw();
                 }
-
-                let current_layout = compute_layout(
-                    screen_w,
-                    screen_h.saturating_sub(term_h + find_h),
-                    cw,
-                    lh,
-                    total_lines,
-                    if self.sidebar.visible {
-                        self.sidebar.width
-                    } else {
-                        0
-                    },
-                );
                 let desired_icon = self.input.desired_cursor_icon(
-                    &current_layout,
+                    &layout,
                     &self.tabs,
                     &self.sidebar,
                     &self.terminal,
@@ -551,7 +514,6 @@ impl ApplicationHandler<AppEvent> for App {
                     window.set_cursor(desired_icon);
                 }
             }
-
             WindowEvent::MouseInput { state, button, .. } => {
                 match self.input.handle_mouse_click(
                     state,
@@ -811,11 +773,9 @@ impl ApplicationHandler<AppEvent> for App {
                                 self.tabs.close_folder_tabs(&root);
                             }
                             self.sidebar.close_folder();
-
                             let cwd =
                                 std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
                             self.terminal.reset(cwd);
-
                             save_session(&self.sidebar, &self.tabs);
                             let effective_sidebar_w = if self.sidebar.visible {
                                 self.sidebar.width
@@ -1034,21 +994,8 @@ impl ApplicationHandler<AppEvent> for App {
                     }
                     ActionEvent::None => {}
                 }
-
-                let current_layout = compute_layout(
-                    screen_w,
-                    screen_h.saturating_sub(term_h + find_h),
-                    cw,
-                    lh,
-                    total_lines,
-                    if self.sidebar.visible {
-                        self.sidebar.width
-                    } else {
-                        0
-                    },
-                );
                 let desired_icon = self.input.desired_cursor_icon(
-                    &current_layout,
+                    &layout,
                     &self.tabs,
                     &self.sidebar,
                     &self.terminal,
@@ -1059,29 +1006,24 @@ impl ApplicationHandler<AppEvent> for App {
                     window.set_cursor(desired_icon);
                 }
             }
-
             WindowEvent::Focused(is_focused) => {
                 if !is_focused {
                     self.input.drag = input::DragState::None;
                     self.input.is_left_down = false;
-                } else {
-                    if self.sync_filesystem() {
-                        if let Some(w) = &self.window {
-                            w.request_redraw();
-                        }
-                    } else if self.sidebar.root_folder.is_some() {
-                        let screen_h = self.renderer.as_ref().map(|r| r.height).unwrap_or(768);
-                        self.sidebar.clamp_scroll(screen_h);
-                        window.request_redraw();
+                } else if self.sync_filesystem() {
+                    if let Some(w) = &self.window {
+                        w.request_redraw();
                     }
+                } else if self.sidebar.root_folder.is_some() {
+                    let screen_h = self.renderer.as_ref().map(|r| r.height).unwrap_or(768);
+                    self.sidebar.clamp_scroll(screen_h);
+                    window.request_redraw();
                 }
             }
-
             WindowEvent::CursorLeft { .. } => {
                 self.input.drag = input::DragState::None;
                 self.input.is_left_down = false;
             }
-
             WindowEvent::MouseWheel { delta, .. } => {
                 if self.input.handle_mouse_wheel(
                     delta,
@@ -1097,7 +1039,6 @@ impl ApplicationHandler<AppEvent> for App {
                     window.request_redraw();
                 }
             }
-
             WindowEvent::KeyboardInput { event, .. } => {
                 let is_alt = self.input.modifiers.alt_key();
                 let is_f4 = matches!(event.physical_key, PhysicalKey::Code(KeyCode::F4))
@@ -1112,15 +1053,12 @@ impl ApplicationHandler<AppEvent> for App {
                     );
                     return;
                 }
-
                 if self.input.handle_key(
                     &event,
                     &mut self.tabs,
                     &mut self.terminal,
                     &layout,
                     cw,
-                    lh,
-                    screen_w,
                     &mut self.clipboard,
                 ) {
                     save_session(&self.sidebar, &self.tabs);
@@ -1133,7 +1071,6 @@ impl ApplicationHandler<AppEvent> for App {
                     window.request_redraw();
                 }
             }
-
             WindowEvent::CloseRequested => {
                 trigger_app_close(
                     &mut self.tabs,
@@ -1154,7 +1091,6 @@ fn main() {
         .expect("Failed to create event loop");
     event_loop.set_control_flow(ControlFlow::Wait);
     let event_proxy = event_loop.create_proxy();
-
     let mut app = App {
         window: None,
         renderer: None,
@@ -1167,9 +1103,7 @@ fn main() {
         current_title: String::new(),
         event_proxy,
     };
-
     app.apply_loaded_session();
-
     event_loop
         .run_app(&mut app)
         .expect("Error running event loop");

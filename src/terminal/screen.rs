@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 pub const ANSI_COLORS: [u32; 16] = [
     0xFF6E7681, 0xFFFF4D4D, 0xFF2EE59D, 0xFFFFDD00, 0xFF4C9EFF, 0xFFFF55D4, 0xFF00E5FF, 0xFFE6EDF3,
     0xFF8B949E, 0xFFFF7B72, 0xFF56F39A, 0xFFFFF066, 0xFF79C0FF, 0xFFFFA8EC, 0xFF56FFFF, 0xFFFFFFFF,
@@ -20,7 +22,7 @@ pub fn ansi_256_to_u32(idx: u8) -> u32 {
     0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct TerminalCell {
     pub ch: char,
     pub fg: u32,
@@ -57,7 +59,7 @@ pub struct TerminalScreen {
     pub cols: usize,
     pub grid: Vec<TerminalRow>,
     pub alt_grid: Vec<TerminalRow>,
-    pub scrollback: Vec<TerminalRow>,
+    pub scrollback: VecDeque<TerminalRow>,
     pub is_alt: bool,
     pub cursor_row: usize,
     pub cursor_col: usize,
@@ -79,7 +81,7 @@ impl TerminalScreen {
             cols: c,
             grid: vec![TerminalRow::new(c); r],
             alt_grid: vec![TerminalRow::new(c); r],
-            scrollback: Vec::new(),
+            scrollback: VecDeque::with_capacity(512),
             is_alt: false,
             cursor_row: 0,
             cursor_col: 0,
@@ -98,17 +100,14 @@ impl TerminalScreen {
         let c = new_cols.max(1);
         self.rows = r;
         self.cols = c;
-
         self.grid.resize(r, TerminalRow::new(c));
         for row in &mut self.grid {
             row.resize(c);
         }
-
         self.alt_grid.resize(r, TerminalRow::new(c));
         for row in &mut self.alt_grid {
             row.resize(c);
         }
-
         self.cursor_row = self.cursor_row.min(r.saturating_sub(1));
         self.cursor_col = self.cursor_col.min(c.saturating_sub(1));
         self.scroll_top = 0;
@@ -161,9 +160,9 @@ impl TerminalScreen {
                 let removed = self.grid.remove(top);
                 if is_full_screen {
                     if self.scrollback.len() >= 5000 {
-                        self.scrollback.remove(0);
+                        self.scrollback.pop_front();
                     }
-                    self.scrollback.push(removed);
+                    self.scrollback.push_back(removed);
                 }
                 self.grid.insert(bottom, TerminalRow::new(c));
             }
@@ -197,7 +196,6 @@ impl TerminalScreen {
                 self.cursor_row += 1;
             }
         }
-
         let fg = self.current_fg;
         let r = self.cursor_row;
         let c = self.cursor_col;
@@ -205,7 +203,6 @@ impl TerminalScreen {
         if r < rows.len() && c < rows[r].cells.len() {
             rows[r].cells[c] = TerminalCell { ch, fg };
         }
-
         if self.cursor_col + 1 >= self.cols {
             self.wrap_next = true;
         } else {
@@ -216,7 +213,6 @@ impl TerminalScreen {
     pub fn process_bytes(&mut self, bytes: &[u8]) {
         let mut i = 0;
         let len = bytes.len();
-
         while i < len {
             let b = bytes[i];
             if b == b'\x1b' {
@@ -225,7 +221,6 @@ impl TerminalScreen {
                 if i >= len {
                     break;
                 }
-
                 match bytes[i] {
                     b'[' => {
                         i += 1;
@@ -316,7 +311,6 @@ impl TerminalScreen {
                 }
                 continue;
             }
-
             match b {
                 b'\r' => {
                     self.wrap_next = false;
@@ -417,12 +411,10 @@ impl TerminalScreen {
             }
             return;
         }
-
         let parts: Vec<usize> = params
             .split(';')
             .filter_map(|s| s.parse::<usize>().ok())
             .collect();
-
         match cmd {
             b'm' => self.handle_sgr(&parts),
             b's' => {
@@ -633,10 +625,8 @@ impl TerminalScreen {
             self.current_fg = COLOR_TERMINAL_FG;
             return;
         }
-
         let is_bold = parts.contains(&1);
         let mut idx = 0;
-
         while idx < parts.len() {
             match parts[idx] {
                 0 => self.current_fg = COLOR_TERMINAL_FG,

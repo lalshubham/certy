@@ -150,7 +150,6 @@ pub fn draw_string_ellipsis(
     let avail_w = (max_x as i32 - start_x).max(0) as usize;
     let max_chars = avail_w / cw;
     let char_count = text.chars().count();
-
     if char_count <= max_chars {
         draw_string(
             fonts, frame, text, start_x, start_y, screen_w, screen_h, color,
@@ -197,7 +196,6 @@ pub fn draw_close_icon_clipped(
         let p2 = x + k + 1;
         let p3 = x + s - 1 - k;
         let p4 = x + s - 2 - k;
-
         for px in [p1, p2, p3, p4] {
             if px >= clip_min_x as i32 && (px as usize) < max_x {
                 buf[row_offset + px as usize] = color;

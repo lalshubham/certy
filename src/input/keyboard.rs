@@ -15,8 +15,6 @@ impl InputHandler {
         terminal: &mut Terminal,
         layout: &ViewportLayout,
         char_w: usize,
-        _line_h: usize,
-        _screen_w: usize,
         clipboard: &mut Option<Clipboard>,
     ) -> bool {
         if event.state == ElementState::Released {
@@ -39,16 +37,13 @@ impl InputHandler {
             }
             return false;
         }
-
-        if self.context_menu.is_some() {
-            if event.state == ElementState::Pressed
-                && matches!(event.logical_key, Key::Named(NamedKey::Escape))
-            {
-                self.context_menu = None;
-                return true;
-            }
+        if self.context_menu.is_some()
+            && event.state == ElementState::Pressed
+            && matches!(event.logical_key, Key::Named(NamedKey::Escape))
+        {
+            self.context_menu = None;
+            return true;
         }
-
         if tabs.closing_app || tabs.closing_files || tabs.pending_close.is_some() {
             if event.state == ElementState::Pressed
                 && matches!(event.logical_key, Key::Named(NamedKey::Escape))
@@ -60,16 +55,13 @@ impl InputHandler {
             }
             return false;
         }
-
-        if tabs.find.is_open {
-            if event.state == ElementState::Pressed
-                && matches!(event.logical_key, Key::Named(NamedKey::Escape))
-            {
-                tabs.find.close();
-                return true;
-            }
+        if tabs.find.is_open
+            && event.state == ElementState::Pressed
+            && matches!(event.logical_key, Key::Named(NamedKey::Escape))
+        {
+            tabs.find.close();
+            return true;
         }
-
         if event.logical_key == Key::Named(NamedKey::Control)
             || matches!(
                 event.physical_key,
@@ -88,7 +80,6 @@ impl InputHandler {
             self.shift_down = true;
             return false;
         }
-
         let is_ctrl = self.modifiers.control_key() || self.ctrl_down;
         let is_shift = self.modifiers.shift_key() || self.shift_down;
         let is_alt = self.modifiers.alt_key();
@@ -104,7 +95,6 @@ impl InputHandler {
                     Key::Character(c) => c.eq_ignore_ascii_case("v") || c == "\u{16}",
                     _ => false,
                 };
-
             if let Some(tab) = terminal.active_tab_mut() {
                 if is_ctrl && is_c {
                     if let Some(text) = tab.selected_text() {
@@ -125,7 +115,6 @@ impl InputHandler {
                     }
                     return false;
                 }
-
                 if is_ctrl {
                     let ctrl_byte = match event.physical_key {
                         PhysicalKey::Code(KeyCode::KeyA) => Some(b"\x01"),
@@ -145,13 +134,11 @@ impl InputHandler {
                         PhysicalKey::Code(KeyCode::KeyZ) => Some(b"\x1a"),
                         _ => None,
                     };
-
                     if let Some(b) = ctrl_byte {
                         tab.write_bytes(b);
                         return true;
                     }
                 }
-
                 let key_bytes: Option<&[u8]> = match &event.logical_key {
                     Key::Named(NamedKey::Enter) => Some(b"\r"),
                     Key::Named(NamedKey::Backspace) => Some(b"\x7f"),
@@ -172,7 +159,6 @@ impl InputHandler {
                     tab.write_bytes(b);
                     return true;
                 }
-
                 if !is_ctrl {
                     if let Some(txt) = &event.text {
                         tab.write_bytes(txt.as_bytes());
@@ -260,14 +246,12 @@ impl InputHandler {
             }
             return true;
         }
-
         if is_ctrl && !is_shift && !is_alt && is_f {
             let sel = buffer.selected_text();
             find.open(find.is_replace, sel, buffer);
             find.sync_view(buffer, layout.visible_lines, layout.visible_cols);
             return true;
         }
-
         if is_ctrl && is_z {
             if is_shift {
                 buffer.redo();
@@ -281,7 +265,6 @@ impl InputHandler {
             buffer.fit_view(layout.visible_lines, layout.visible_cols);
             return true;
         }
-
         if is_ctrl && is_y {
             buffer.redo();
             if find.is_open {
@@ -291,23 +274,22 @@ impl InputHandler {
             buffer.fit_view(layout.visible_lines, layout.visible_cols);
             return true;
         }
+        let max_vis_chars = if char_w > 0 {
+            240usize.saturating_sub(8) / char_w
+        } else {
+            10
+        };
 
         if is_ctrl && is_a {
             if !find.is_open || !find.focused {
                 buffer.select_all();
             } else {
                 find.select_all();
-                let max_vis_chars = if char_w > 0 {
-                    240usize.saturating_sub(8) / char_w
-                } else {
-                    10
-                };
                 find.ensure_query_visible(max_vis_chars);
                 find.ensure_replace_visible(max_vis_chars);
             }
             return true;
         }
-
         if is_ctrl && !is_shift && !is_alt && is_d {
             buffer.duplicate_line();
             if find.is_open {
@@ -316,7 +298,6 @@ impl InputHandler {
             buffer.fit_view(layout.visible_lines, layout.visible_cols);
             return true;
         }
-
         if is_ctrl && is_shift && !is_alt && is_k {
             buffer.delete_line();
             if find.is_open {
@@ -325,7 +306,6 @@ impl InputHandler {
             buffer.fit_view(layout.visible_lines, layout.visible_cols);
             return true;
         }
-
         if is_ctrl && !is_shift && !is_alt && is_slash {
             buffer.toggle_line_comment();
             if find.is_open {
@@ -334,7 +314,6 @@ impl InputHandler {
             buffer.fit_view(layout.visible_lines, layout.visible_cols);
             return true;
         }
-
         if find.is_open && find.focused {
             if is_ctrl && is_c {
                 if let Some(text) = find.selected_text() {
@@ -353,11 +332,6 @@ impl InputHandler {
                     if find.active_field == FindField::Find {
                         find.update_matches(buffer);
                     }
-                    let max_vis_chars = if char_w > 0 {
-                        240usize.saturating_sub(8) / char_w
-                    } else {
-                        10
-                    };
                     find.ensure_query_visible(max_vis_chars);
                     find.ensure_replace_visible(max_vis_chars);
                     find.sync_view(buffer, layout.visible_lines, layout.visible_cols);
@@ -368,11 +342,6 @@ impl InputHandler {
                 if let Some(cb) = clipboard.as_mut() {
                     if let Ok(text) = cb.get_text() {
                         find.insert_str_at_cursor(&text, buffer);
-                        let max_vis_chars = if char_w > 0 {
-                            240usize.saturating_sub(8) / char_w
-                        } else {
-                            10
-                        };
                         find.ensure_query_visible(max_vis_chars);
                         find.ensure_replace_visible(max_vis_chars);
                         find.sync_view(buffer, layout.visible_lines, layout.visible_cols);
@@ -381,17 +350,10 @@ impl InputHandler {
                 }
                 return false;
             }
-
             let has_matches = !find.matches.is_empty();
-            let max_vis_chars = if char_w > 0 {
-                240usize.saturating_sub(8) / char_w
-            } else {
-                10
-            };
-
             match &event.logical_key {
                 Key::Named(NamedKey::Enter) => {
-                    if find.active_field == crate::editor::find::FindField::Find {
+                    if find.active_field == FindField::Find {
                         if has_matches {
                             if is_shift {
                                 find.prev_match(buffer, layout.visible_lines, layout.visible_cols);
@@ -472,7 +434,6 @@ impl InputHandler {
             }
             return true;
         }
-
         if is_ctrl && is_c {
             if let Some(text) = buffer.selected_text() {
                 if let Some(cb) = clipboard.as_mut() {
@@ -481,7 +442,6 @@ impl InputHandler {
             }
             return false;
         }
-
         if is_ctrl && is_x {
             if let Some(text) = buffer.selected_text() {
                 if let Some(cb) = clipboard.as_mut() {
@@ -496,7 +456,6 @@ impl InputHandler {
             }
             return false;
         }
-
         if is_ctrl && is_v {
             if let Some(cb) = clipboard.as_mut() {
                 if let Ok(text) = cb.get_text() {
@@ -510,7 +469,6 @@ impl InputHandler {
             }
             return false;
         }
-
         match &event.logical_key {
             Key::Named(NamedKey::Backspace) => buffer.delete_backwards(),
             Key::Named(NamedKey::Delete) => buffer.delete_forward(),
@@ -556,11 +514,9 @@ impl InputHandler {
                 }
             }
         }
-
         if find.is_open {
             find.update_matches(buffer);
         }
-
         buffer.fit_view(layout.visible_lines, layout.visible_cols);
         true
     }

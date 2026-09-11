@@ -1,8 +1,11 @@
 pub mod tree;
+
 use crate::config::{SIDEBAR_INITIAL_WIDTH, SIDEBAR_ROW_HEIGHT, TAB_BAR_HEIGHT};
 use std::collections::HashSet;
 use std::path::PathBuf;
-pub use tree::{read_dir_nodes, FileNode};
+use tree::read_dir_nodes;
+
+pub use tree::FileNode;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MenuItem {
@@ -97,7 +100,7 @@ impl Sidebar {
     pub fn toggle_root(&mut self) {
         self.root_expanded = !self.root_expanded;
         if !self.root_expanded {
-            if let Some(ref root) = self.root_folder.clone() {
+            if let Some(ref root) = self.root_folder {
                 self.nodes = read_dir_nodes(root, 0);
             }
         }
@@ -114,9 +117,9 @@ impl Sidebar {
     }
 
     pub fn open_folder(&mut self, path: PathBuf) {
-        self.root_folder = Some(path.clone());
-        self.root_expanded = true;
         self.nodes = read_dir_nodes(&path, 0);
+        self.root_folder = Some(path);
+        self.root_expanded = true;
         self.scroll_y = 0;
     }
 
@@ -127,14 +130,14 @@ impl Sidebar {
     }
 
     pub fn refresh_folder(&mut self) {
-        if let Some(root) = self.root_folder.clone() {
+        if let Some(ref root) = self.root_folder {
             let expanded: HashSet<PathBuf> = self
                 .nodes
                 .iter()
                 .filter(|n| n.is_dir && n.is_expanded)
                 .map(|n| n.path.clone())
                 .collect();
-            self.nodes = tree::build_dir_tree_internal(&root, 0, &expanded);
+            self.nodes = tree::build_dir_tree_internal(root, 0, &expanded);
         }
     }
 
@@ -157,11 +160,7 @@ impl Sidebar {
         } else {
             self.nodes[idx].is_expanded = true;
             let children = read_dir_nodes(&self.nodes[idx].path, self.nodes[idx].depth + 1);
-            let mut insert_idx = idx + 1;
-            for child in children {
-                self.nodes.insert(insert_idx, child);
-                insert_idx += 1;
-            }
+            self.nodes.splice(idx + 1..idx + 1, children);
         }
     }
 }

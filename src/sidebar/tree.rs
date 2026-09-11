@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
 pub struct FileNode {
@@ -11,8 +11,8 @@ pub struct FileNode {
     pub is_expanded: bool,
 }
 
-pub(crate) fn build_dir_tree_internal(
-    dir: &PathBuf,
+pub(super) fn build_dir_tree_internal(
+    dir: &Path,
     depth: usize,
     expanded: &HashSet<PathBuf>,
 ) -> Vec<FileNode> {
@@ -31,7 +31,7 @@ pub(crate) fn build_dir_tree_internal(
     result
 }
 
-pub fn read_dir_nodes(dir: &PathBuf, depth: usize) -> Vec<FileNode> {
+pub fn read_dir_nodes(dir: &Path, depth: usize) -> Vec<FileNode> {
     let mut entries = Vec::new();
     if let Ok(read_dir) = fs::read_dir(dir) {
         for entry in read_dir.filter_map(|e| e.ok()) {

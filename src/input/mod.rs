@@ -2,9 +2,8 @@ pub mod actions;
 pub mod keyboard;
 pub mod mouse;
 
-pub use crate::ui::ContextMenu;
+use crate::ui::ContextMenu;
 pub use actions::{ActionEvent, AppEvent};
-
 use std::time::Instant;
 use winit::keyboard::ModifiersState;
 

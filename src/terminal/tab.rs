@@ -47,22 +47,17 @@ impl TerminalTab {
                 pixel_height: 0,
             })
             .expect("Failed to create pty");
-
         let shell = detect_shell();
         let mut cmd = CommandBuilder::new(&shell);
         cmd.cwd(&cwd);
-
         #[cfg(not(target_os = "windows"))]
         cmd.arg("-l");
-
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
-
         let child = pair
             .slave
             .spawn_command(cmd)
             .expect("Failed to spawn shell");
-
         let mut reader = pair
             .master
             .try_clone_reader()
@@ -71,7 +66,6 @@ impl TerminalTab {
             .master
             .take_writer()
             .expect("Failed to take pty writer");
-
         let (tx, rx) = channel();
         thread::spawn(move || {
             let mut buf = [0u8; 4096];
@@ -84,7 +78,6 @@ impl TerminalTab {
                 }
             }
         });
-
         Self {
             name,
             cwd,
@@ -171,24 +164,25 @@ impl TerminalTab {
 
     pub fn selected_text(&self) -> Option<String> {
         let ((s_line, s_col), (e_line, e_col)) = self.selection_range()?;
-        let mut result = Vec::new();
+        let mut result = Vec::with_capacity(e_line.saturating_sub(s_line) + 1);
         for line_idx in s_line..=e_line {
             if let Some(row) = self.get_row(line_idx) {
-                let chars: Vec<char> = row.cells.iter().map(|c| c.ch).collect();
+                let cell_len = row.cells.len();
                 let start = if line_idx == s_line {
-                    s_col.min(chars.len())
+                    s_col.min(cell_len)
                 } else {
                     0
                 };
                 let end = if line_idx == e_line {
-                    e_col.min(chars.len())
+                    e_col.min(cell_len)
                 } else {
-                    chars.len()
+                    cell_len
                 };
                 if start <= end {
-                    let mut s: String = chars[start..end].iter().collect();
+                    let mut s: String = row.cells[start..end].iter().map(|c| c.ch).collect();
                     if line_idx != e_line {
-                        s = s.trim_end().to_string();
+                        let trimmed_len = s.trim_end().len();
+                        s.truncate(trimmed_len);
                     }
                     result.push(s);
                 } else {

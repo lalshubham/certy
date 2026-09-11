@@ -17,6 +17,12 @@ pub struct FontManager {
     pub baseline_offset: usize,
 }
 
+impl Default for FontManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FontManager {
     pub fn new() -> Self {
         let font = Font::from_bytes(FONT_DATA, FontSettings::default())

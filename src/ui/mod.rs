@@ -90,7 +90,6 @@ impl Renderer {
         if self.width == 0 || self.height == 0 {
             return;
         }
-
         let screen_w = self.width;
         let screen_h = self.height;
         let term_h = if terminal.is_open { terminal.height } else { 0 };
@@ -109,10 +108,8 @@ impl Renderer {
             .unwrap_or(0);
         let sidebar_w = if sidebar.visible { sidebar.width } else { 0 };
         let layout = self.layout(total_lines, sidebar_w, term_h, find_h);
-
         let mut frame = self.surface.buffer_mut().expect("Failed to get buffer");
         frame.fill(COLOR_BACKGROUND);
-
         render_sidebar(
             &mut frame,
             &mut self.font_manager,
@@ -122,7 +119,6 @@ impl Renderer {
             screen_w,
             screen_h,
         );
-
         render_editor_tabs(
             &mut frame,
             &mut self.font_manager,
@@ -131,7 +127,6 @@ impl Renderer {
             screen_w,
             screen_h,
         );
-
         render_editor_buffer(
             &mut frame,
             &mut self.font_manager,
@@ -141,7 +136,6 @@ impl Renderer {
             screen_w,
             screen_h,
         );
-
         render_terminal(
             &mut frame,
             &mut self.font_manager,
@@ -150,7 +144,6 @@ impl Renderer {
             screen_w,
             screen_h,
         );
-
         if let Some(modal) = compute_modal_layout(
             tabs,
             screen_w,
@@ -167,7 +160,6 @@ impl Renderer {
                 screen_h,
             );
         }
-
         if let Some(menu) = context_menu {
             render_context_menu(
                 &mut frame,
@@ -179,7 +171,6 @@ impl Renderer {
                 screen_h,
             );
         }
-
         frame.present().expect("Failed to present frame");
     }
 }
