@@ -14,7 +14,7 @@ impl InputHandler {
         tabs: &mut TabManager,
         terminal: &mut Terminal,
         layout: &ViewportLayout,
-        _char_w: usize,
+        char_w: usize,
         _line_h: usize,
         _screen_w: usize,
         clipboard: &mut Option<Clipboard>,
@@ -125,6 +125,7 @@ impl InputHandler {
                     }
                     return false;
                 }
+
                 if is_ctrl {
                     let ctrl_byte = match event.physical_key {
                         PhysicalKey::Code(KeyCode::KeyA) => Some(b"\x01"),
@@ -144,11 +145,13 @@ impl InputHandler {
                         PhysicalKey::Code(KeyCode::KeyZ) => Some(b"\x1a"),
                         _ => None,
                     };
+
                     if let Some(b) = ctrl_byte {
                         tab.write_bytes(b);
                         return true;
                     }
                 }
+
                 let key_bytes: Option<&[u8]> = match &event.logical_key {
                     Key::Named(NamedKey::Enter) => Some(b"\r"),
                     Key::Named(NamedKey::Backspace) => Some(b"\x7f"),
@@ -169,6 +172,7 @@ impl InputHandler {
                     tab.write_bytes(b);
                     return true;
                 }
+
                 if !is_ctrl {
                     if let Some(txt) = &event.text {
                         tab.write_bytes(txt.as_bytes());
@@ -187,7 +191,6 @@ impl InputHandler {
             Some(t) => (t, &mut tabs.find),
             None => return false,
         };
-
         let buffer = &mut tab.buffer;
 
         let is_s = matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyS))
@@ -294,6 +297,13 @@ impl InputHandler {
                 buffer.select_all();
             } else {
                 find.select_all();
+                let max_vis_chars = if char_w > 0 {
+                    240usize.saturating_sub(8) / char_w
+                } else {
+                    10
+                };
+                find.ensure_query_visible(max_vis_chars);
+                find.ensure_replace_visible(max_vis_chars);
             }
             return true;
         }
@@ -343,6 +353,13 @@ impl InputHandler {
                     if find.active_field == FindField::Find {
                         find.update_matches(buffer);
                     }
+                    let max_vis_chars = if char_w > 0 {
+                        240usize.saturating_sub(8) / char_w
+                    } else {
+                        10
+                    };
+                    find.ensure_query_visible(max_vis_chars);
+                    find.ensure_replace_visible(max_vis_chars);
                     find.sync_view(buffer, layout.visible_lines, layout.visible_cols);
                 }
                 return true;
@@ -351,6 +368,13 @@ impl InputHandler {
                 if let Some(cb) = clipboard.as_mut() {
                     if let Ok(text) = cb.get_text() {
                         find.insert_str_at_cursor(&text, buffer);
+                        let max_vis_chars = if char_w > 0 {
+                            240usize.saturating_sub(8) / char_w
+                        } else {
+                            10
+                        };
+                        find.ensure_query_visible(max_vis_chars);
+                        find.ensure_replace_visible(max_vis_chars);
                         find.sync_view(buffer, layout.visible_lines, layout.visible_cols);
                         return true;
                     }
@@ -359,6 +383,11 @@ impl InputHandler {
             }
 
             let has_matches = !find.matches.is_empty();
+            let max_vis_chars = if char_w > 0 {
+                240usize.saturating_sub(8) / char_w
+            } else {
+                10
+            };
 
             match &event.logical_key {
                 Key::Named(NamedKey::Enter) => {
@@ -377,18 +406,26 @@ impl InputHandler {
                 }
                 Key::Named(NamedKey::ArrowLeft) => {
                     find.move_cursor_left();
+                    find.ensure_query_visible(max_vis_chars);
+                    find.ensure_replace_visible(max_vis_chars);
                     return true;
                 }
                 Key::Named(NamedKey::ArrowRight) => {
                     find.move_cursor_right();
+                    find.ensure_query_visible(max_vis_chars);
+                    find.ensure_replace_visible(max_vis_chars);
                     return true;
                 }
                 Key::Named(NamedKey::Home) => {
                     find.move_cursor_home();
+                    find.ensure_query_visible(max_vis_chars);
+                    find.ensure_replace_visible(max_vis_chars);
                     return true;
                 }
                 Key::Named(NamedKey::End) => {
                     find.move_cursor_end();
+                    find.ensure_query_visible(max_vis_chars);
+                    find.ensure_replace_visible(max_vis_chars);
                     return true;
                 }
                 Key::Named(NamedKey::ArrowDown) => {
@@ -405,11 +442,15 @@ impl InputHandler {
                 }
                 Key::Named(NamedKey::Backspace) => {
                     find.delete_backwards(buffer);
+                    find.ensure_query_visible(max_vis_chars);
+                    find.ensure_replace_visible(max_vis_chars);
                     find.sync_view(buffer, layout.visible_lines, layout.visible_cols);
                     return true;
                 }
                 Key::Named(NamedKey::Delete) => {
                     find.delete_forward(buffer);
+                    find.ensure_query_visible(max_vis_chars);
+                    find.ensure_replace_visible(max_vis_chars);
                     find.sync_view(buffer, layout.visible_lines, layout.visible_cols);
                     return true;
                 }
@@ -421,6 +462,8 @@ impl InputHandler {
                                     find.insert_char_at_cursor(ch, buffer);
                                 }
                             }
+                            find.ensure_query_visible(max_vis_chars);
+                            find.ensure_replace_visible(max_vis_chars);
                             find.sync_view(buffer, layout.visible_lines, layout.visible_cols);
                             return true;
                         }

@@ -15,6 +15,8 @@ pub struct FindState {
     pub replace_text: String,
     pub query_cursor: usize,
     pub replace_cursor: usize,
+    pub query_scroll: usize,
+    pub replace_scroll: usize,
     pub query_selection_anchor: Option<usize>,
     pub replace_selection_anchor: Option<usize>,
     pub scroll_x: usize,
@@ -57,17 +59,22 @@ impl FindState {
         self.focused = true;
         self.is_replace = is_replace;
         self.active_field = FindField::Find;
+
         if let Some(q) = initial_query {
             if !q.is_empty() && !q.contains('\n') {
                 self.query = q;
             }
         }
+
         self.query_cursor = self.query.chars().count();
         self.replace_cursor = self.replace_text.chars().count();
+        self.query_scroll = 0;
+        self.replace_scroll = 0;
         self.query_selection_anchor = None;
         self.replace_selection_anchor = None;
         self.hovered_btn = None;
         self.scroll_x = 0;
+
         self.update_matches(buffer);
     }
 
@@ -80,6 +87,28 @@ impl FindState {
         self.query_selection_anchor = None;
         self.replace_selection_anchor = None;
         self.scroll_x = 0;
+        self.query_scroll = 0;
+        self.replace_scroll = 0;
+    }
+
+    pub fn ensure_query_visible(&mut self, max_vis: usize) {
+        if self.query_cursor < self.query_scroll {
+            self.query_scroll = self.query_cursor;
+        } else if self.query_cursor > self.query_scroll + max_vis {
+            self.query_scroll = self.query_cursor.saturating_sub(max_vis);
+        }
+        let max_scroll = self.query.chars().count().saturating_sub(max_vis);
+        self.query_scroll = self.query_scroll.min(max_scroll);
+    }
+
+    pub fn ensure_replace_visible(&mut self, max_vis: usize) {
+        if self.replace_cursor < self.replace_scroll {
+            self.replace_scroll = self.replace_cursor;
+        } else if self.replace_cursor > self.replace_scroll + max_vis {
+            self.replace_scroll = self.replace_cursor.saturating_sub(max_vis);
+        }
+        let max_scroll = self.replace_text.chars().count().saturating_sub(max_vis);
+        self.replace_scroll = self.replace_scroll.min(max_scroll);
     }
 
     pub fn clamp_scroll(&mut self, char_w: usize, available_w: usize) {
@@ -114,6 +143,7 @@ impl FindState {
         } else {
             0
         };
+
         row1_w.max(row2_w)
     }
 
@@ -178,6 +208,7 @@ impl FindState {
             FindField::Find => (&self.query, self.query_cursor),
             FindField::Replace => (&self.replace_text, self.replace_cursor),
         };
+
         let chars: Vec<char> = text.chars().collect();
         if chars.is_empty() {
             return;
@@ -188,6 +219,7 @@ impl FindState {
         } else {
             cursor
         };
+
         let ch = chars[check_idx];
         let is_alnum = ch.is_alphanumeric() || ch == '_';
 
@@ -199,6 +231,7 @@ impl FindState {
             }
             start -= 1;
         }
+
         let mut end = check_idx;
         while end < chars.len() {
             let next = chars[end];
@@ -239,6 +272,7 @@ impl FindState {
 
     pub fn insert_char_at_cursor(&mut self, ch: char, buffer: &EditorBuffer) {
         self.delete_selection();
+
         match self.active_field {
             FindField::Find => {
                 let mut chars: Vec<char> = self.query.chars().collect();
@@ -263,8 +297,10 @@ impl FindState {
         if clean.is_empty() {
             return;
         }
+
         self.delete_selection();
         let count = clean.chars().count();
+
         match self.active_field {
             FindField::Find => {
                 let mut chars: Vec<char> = self.query.chars().collect();
@@ -295,6 +331,7 @@ impl FindState {
             }
             return;
         }
+
         match self.active_field {
             FindField::Find => {
                 if self.query_cursor > 0 {
@@ -327,6 +364,7 @@ impl FindState {
             }
             return;
         }
+
         match self.active_field {
             FindField::Find => {
                 let mut chars: Vec<char> = self.query.chars().collect();
@@ -444,6 +482,7 @@ impl FindState {
                 if q_len == 0 || line_len < q_len {
                     continue;
                 }
+
                 let mut col = 0;
                 while col + q_len <= line_len {
                     let matched = (0..q_len).all(|k| {
@@ -460,6 +499,7 @@ impl FindState {
                         } else {
                             true
                         };
+
                         if is_valid {
                             let start = line_start_char + col;
                             let end = start + q_len;
@@ -620,6 +660,7 @@ impl CompiledRegex {
             }
             return;
         }
+
         match &pieces[0] {
             PatternPiece::Single(atom) => {
                 if char_idx < chars.len() && self.check_atom(atom, chars[char_idx]) {
