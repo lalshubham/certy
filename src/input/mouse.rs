@@ -1199,7 +1199,6 @@ impl InputHandler {
                             .find
                             .query_scroll
                             .min(q_len.saturating_sub(max_vis_chars));
-
                         tabs.find.query_cursor = (scroll_offset + char_offset).min(q_len);
                         tabs.find.query_selection_anchor = Some(tabs.find.query_cursor);
 
@@ -1343,7 +1342,6 @@ impl InputHandler {
                                 .find
                                 .replace_scroll
                                 .min(r_len.saturating_sub(max_vis_chars));
-
                             tabs.find.replace_cursor = (scroll_offset + char_offset).min(r_len);
                             tabs.find.replace_selection_anchor = Some(tabs.find.replace_cursor);
 
@@ -1644,15 +1642,63 @@ impl InputHandler {
             let bar_y = layout.content_bottom + SCROLLBAR_THICKNESS;
 
             if my >= bar_y && my < bar_y + bar_h && mx >= layout.content_left {
-                let close_w = "Close".len() * char_w + 16;
+                let cw = char_w.max(1);
                 let toggle_label = if tabs.find.is_replace { "[-]" } else { "[+]" };
-                let toggle_w = toggle_label.len() * char_w + 6;
+                let toggle_w = toggle_label.len() * cw + 6;
+                let toggle_x = layout.content_left + 6;
+                let scrollable_min_x = toggle_x + toggle_w + 6;
+                let cur_x = scrollable_min_x as i32 - tabs.find.scroll_x as i32;
+                let mx_i = mx as i32;
+                let scroll_delta = if cols != 0 { -cols } else { -lines };
+                let padding = 4;
+                let max_vis_chars = if cw > 0 {
+                    240usize.saturating_sub(padding * 2) / cw
+                } else {
+                    10
+                };
+
+                let query_hovered =
+                    my >= bar_y + 6 && my < bar_y + 30 && mx_i >= cur_x && mx_i < cur_x + 240;
+                if tabs.find.focused && tabs.find.active_field == FindField::Find && query_hovered {
+                    let q_len = tabs.find.query.chars().count();
+                    let max_scroll = q_len.saturating_sub(max_vis_chars);
+                    let next_scroll = (tabs.find.query_scroll as i32 + scroll_delta)
+                        .clamp(0, max_scroll as i32) as usize;
+                    if tabs.find.query_scroll != next_scroll {
+                        tabs.find.query_scroll = next_scroll;
+                        return true;
+                    }
+                    return false;
+                }
+
+                let rep_y = if tabs.find.is_replace {
+                    bar_y + 36
+                } else {
+                    bar_y + 6
+                };
+                let rep_hovered = tabs.find.is_replace
+                    && my >= rep_y
+                    && my < rep_y + 24
+                    && mx_i >= cur_x
+                    && mx_i < cur_x + 240;
+                if tabs.find.focused && tabs.find.active_field == FindField::Replace && rep_hovered
+                {
+                    let r_len = tabs.find.replace_text.chars().count();
+                    let max_scroll = r_len.saturating_sub(max_vis_chars);
+                    let next_scroll = (tabs.find.replace_scroll as i32 + scroll_delta)
+                        .clamp(0, max_scroll as i32) as usize;
+                    if tabs.find.replace_scroll != next_scroll {
+                        tabs.find.replace_scroll = next_scroll;
+                        return true;
+                    }
+                    return false;
+                }
+
+                let close_w = "Close".len() * char_w + 16;
                 let fixed_w = 6 + toggle_w + 6 + close_w + 6;
                 let available_w = screen_w.saturating_sub(layout.content_left + fixed_w);
 
-                let scroll_delta = if cols != 0 { -cols } else { -lines };
                 let scroll_amount = scroll_delta * (char_w as i32 * 3);
-
                 let total_w = tabs.find.total_content_width(char_w);
                 let max_scroll = total_w.saturating_sub(available_w);
                 let next_scroll = (tabs.find.scroll_x as i32 + scroll_amount)
