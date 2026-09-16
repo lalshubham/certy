@@ -1,9 +1,10 @@
-mod cursor;
+pub mod cursor;
 mod mutation;
 mod selection;
 mod transform;
 
 use crate::editor::history::{EditAction, History};
+pub use cursor::line_visual_len;
 use ropey::Rope;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Write};
@@ -139,13 +140,7 @@ impl EditorBuffer {
         self.max_line_len = self
             .text
             .lines()
-            .map(|slice| {
-                let mut len = slice.len_chars();
-                while len > 0 && matches!(slice.char(len - 1), '\n' | '\r') {
-                    len -= 1;
-                }
-                len
-            })
+            .map(|slice| line_visual_len(&slice))
             .max()
             .unwrap_or(0);
     }

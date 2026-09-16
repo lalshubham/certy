@@ -909,7 +909,7 @@ impl InputHandler {
                 if line_h > 0 && char_w > 0 {
                     let row = my.saturating_sub(TAB_BAR_HEIGHT + TOP_PADDING) / line_h;
                     let target_line = active_buf.scroll_line + row;
-                    let target_col = if mx >= layout.code_x {
+                    let target_vcol = if mx >= layout.code_x {
                         active_buf.scroll_col + (mx - layout.code_x) / char_w
                     } else {
                         0
@@ -931,10 +931,10 @@ impl InputHandler {
                     self.last_click_time = Some(now);
                     self.last_click_pos = (self.mouse_x, self.mouse_y);
 
-                    active_buf.set_cursor_at(target_line, target_col);
+                    active_buf.set_cursor_at_visual(target_line, target_vcol);
                     match self.click_count {
                         2 => {
-                            active_buf.select_word_at_cursor(target_col);
+                            active_buf.select_word_at_cursor(target_vcol);
                             self.drag = DragState::None;
                         }
                         3 => {

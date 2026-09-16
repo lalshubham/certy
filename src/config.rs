@@ -14,6 +14,7 @@ pub const SCROLLBAR_THICKNESS: usize = 14;
 pub const MIN_THUMB_SIZE: usize = 28;
 pub const WHEEL_SCROLL_SPEED: f32 = 5.0;
 pub const TOUCHPAD_SCROLL_SPEED: f64 = 5.0;
+pub const TAB_WIDTH: usize = 4;
 
 pub const COLOR_BACKGROUND: u32 = 0xFF1E1E1E;
 pub const COLOR_TEXT_DEFAULT: u32 = 0xFFEDEDED;

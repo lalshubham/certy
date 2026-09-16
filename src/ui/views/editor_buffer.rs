@@ -20,7 +20,8 @@ pub fn render_editor_buffer(
         let cw = fonts.char_width;
         let lh = fonts.line_height;
         let buffer = &tab.buffer;
-        let (cur_line, cur_col) = buffer.cursor_pos();
+        let (cur_line, _) = buffer.cursor_pos();
+        let cur_vcol = buffer.visual_cursor_col();
         let sel_range = buffer.selection_range();
         let gutter_x = layout.content_left;
         let gutter_h = layout.content_bottom.saturating_sub(TAB_BAR_HEIGHT) + SCROLLBAR_THICKNESS;
@@ -89,25 +90,40 @@ pub fn render_editor_buffer(
                 syntax::highlight_line(&line_chars, language, in_comment_state, COLOR_TEXT_DEFAULT);
             in_comment_state = next_comment_state;
 
-            for (col_idx, &ch) in line_chars.iter().enumerate() {
-                if col_idx < buffer.scroll_col {
+            let mut current_vcol = 0;
+            for (char_idx_in_line, &ch) in line_chars.iter().enumerate() {
+                let char_w_cols = if ch == '\t' {
+                    TAB_WIDTH - (current_vcol % TAB_WIDTH)
+                } else {
+                    1
+                };
+                let start_vcol = current_vcol;
+                let end_vcol = current_vcol + char_w_cols;
+                current_vcol = end_vcol;
+
+                if end_vcol <= buffer.scroll_col {
                     continue;
                 }
-                let text_x = layout.code_x + (col_idx - buffer.scroll_col) * cw;
-                if text_x + cw > layout.content_right {
+                let text_x = layout.code_x as i32
+                    + (start_vcol as i32 - buffer.scroll_col as i32) * cw as i32;
+                if text_x >= layout.content_right as i32 {
                     break;
                 }
-                let char_idx = line_start_char + col_idx;
+
+                let char_pixel_w = char_w_cols * cw;
+                let char_idx = line_start_char + char_idx_in_line;
 
                 if let Some((start, end)) = sel_range {
                     if char_idx >= start && char_idx < end {
+                        let draw_x = text_x.max(layout.code_x as i32) as usize;
+                        let draw_w = char_pixel_w.min(layout.content_right.saturating_sub(draw_x));
                         draw_solid_rect(
                             frame,
                             screen_w,
                             screen_h,
-                            text_x,
+                            draw_x,
                             y,
-                            cw,
+                            draw_w,
                             lh,
                             COLOR_SELECTION,
                         );
@@ -122,34 +138,34 @@ pub fn render_editor_buffer(
                             } else {
                                 COLOR_FIND_MATCH
                             };
-                            draw_solid_rect(frame, screen_w, screen_h, text_x, y, cw, lh, color);
+                            let draw_x = text_x.max(layout.code_x as i32) as usize;
+                            let draw_w =
+                                char_pixel_w.min(layout.content_right.saturating_sub(draw_x));
+                            draw_solid_rect(
+                                frame, screen_w, screen_h, draw_x, y, draw_w, lh, color,
+                            );
                             break;
                         }
                     }
                 }
 
                 let char_color = syntax_colors
-                    .get(col_idx)
+                    .get(char_idx_in_line)
                     .copied()
                     .unwrap_or(COLOR_TEXT_DEFAULT);
-                fonts.draw_char(
-                    frame,
-                    ch,
-                    text_x as i32,
-                    y as i32,
-                    screen_w,
-                    screen_h,
-                    char_color,
-                );
+
+                if ch != '\t' && !ch.is_control() && !ch.is_whitespace() {
+                    fonts.draw_char(frame, ch, text_x, y as i32, screen_w, screen_h, char_color);
+                }
             }
         }
 
         if cur_line >= buffer.scroll_line
             && cur_line < buffer.scroll_line + layout.visible_lines
-            && cur_col >= buffer.scroll_col
-            && cur_col <= buffer.scroll_col + layout.visible_cols
+            && cur_vcol >= buffer.scroll_col
+            && cur_vcol <= buffer.scroll_col + layout.visible_cols
         {
-            let cx = layout.code_x + (cur_col - buffer.scroll_col) * cw;
+            let cx = layout.code_x + (cur_vcol - buffer.scroll_col) * cw;
             let cy = TAB_BAR_HEIGHT + TOP_PADDING + (cur_line - buffer.scroll_line) * lh;
             let max_y = (cy + lh).min(layout.content_bottom).min(screen_h);
             let max_x = (cx + 2).min(layout.content_right).min(screen_w);

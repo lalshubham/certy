@@ -1,3 +1,4 @@
+use super::cursor::line_visual_len;
 use super::EditorBuffer;
 
 #[derive(PartialEq, Eq)]
@@ -39,14 +40,15 @@ impl EditorBuffer {
         }
     }
 
-    pub fn select_word_at_cursor(&mut self, target_col: usize) {
+    pub fn select_word_at_cursor(&mut self, target_vcol: usize) {
         let total_chars = self.text.len_chars();
         if total_chars == 0 {
             return;
         }
         let (line_idx, _) = self.cursor_pos();
         let line_len = self.line_len(line_idx);
-        if line_len == 0 || target_col > line_len {
+        let vlen = line_visual_len(&self.text.line(line_idx));
+        if line_len == 0 || target_vcol > vlen {
             self.selection_anchor = None;
             return;
         }

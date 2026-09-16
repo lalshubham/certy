@@ -168,14 +168,14 @@ pub fn process_drag(
                         let row = ((input.mouse_y - top_y) as usize) / line_h;
                         active_buf.scroll_line + row
                     };
-                    let target_col = if input.mouse_x < left_x {
+                    let target_vcol = if input.mouse_x < left_x {
                         active_buf.scroll_col
                     } else {
                         let col = ((input.mouse_x - left_x) as usize) / char_w;
                         active_buf.scroll_col + col
                     };
 
-                    active_buf.set_cursor_at(target_line, target_col);
+                    active_buf.set_cursor_at_visual(target_line, target_vcol);
                     active_buf.fit_view(layout.visible_lines, layout.visible_cols);
                     changed = true;
                 }

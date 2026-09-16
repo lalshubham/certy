@@ -62,6 +62,10 @@ impl FontManager {
         screen_h: usize,
         color: u32,
     ) {
+        if ch == '\t' || ch.is_control() {
+            return;
+        }
+
         let glyph = self.cache.entry(ch).or_insert_with(|| {
             let (metrics, bitmap) = self.font.rasterize(ch, FONT_SIZE);
             CachedGlyph { metrics, bitmap }
