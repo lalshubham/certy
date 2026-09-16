@@ -160,7 +160,8 @@ pub fn render_editor_buffer(
             }
         }
 
-        if cur_line >= buffer.scroll_line
+        if tabs.focused
+            && cur_line >= buffer.scroll_line
             && cur_line < buffer.scroll_line + layout.visible_lines
             && cur_vcol >= buffer.scroll_col
             && cur_vcol <= buffer.scroll_col + layout.visible_cols

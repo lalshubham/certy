@@ -625,6 +625,7 @@ impl ApplicationHandler<AppEvent> for App {
                         self.terminal.is_open = !self.terminal.is_open;
                         if self.terminal.is_open {
                             self.terminal.focused = true;
+                            self.tabs.focused = false;
                             let vis_rows = self.terminal.vis_rows(lh);
                             let text_left = layout.content_left + 14;
                             let text_right = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
@@ -643,6 +644,9 @@ impl ApplicationHandler<AppEvent> for App {
                             } else {
                                 self.terminal.resize_active_pty(vis_rows, vis_cols);
                             }
+                        } else {
+                            self.terminal.focused = false;
+                            self.tabs.focused = true;
                         }
                         save_session(&self.sidebar, &self.tabs);
                         window.request_redraw();

@@ -254,7 +254,7 @@ pub fn render_terminal(
             }
         }
 
-        if active_tab.screen.cursor_visible {
+        if terminal.focused && active_tab.screen.cursor_visible {
             let active_cursor_row =
                 if active_tab.screen.is_alt || active_tab.screen.scrollback.is_empty() {
                     active_tab.screen.cursor_row
@@ -268,11 +268,6 @@ pub fn render_terminal(
                 let py = shell_y + 4 + row_on_screen * lh;
                 let cur_px = text_left as i32 + (active_tab.screen.cursor_col * cw) as i32;
                 if cur_px >= text_left as i32 && (cur_px as usize + 2) <= text_right {
-                    let cursor_color = if terminal.focused {
-                        COLOR_CURSOR
-                    } else {
-                        COLOR_LINE_NUMBER_MUTED
-                    };
                     draw_solid_rect(
                         frame,
                         screen_w,
@@ -281,7 +276,7 @@ pub fn render_terminal(
                         py,
                         2,
                         lh,
-                        cursor_color,
+                        COLOR_CURSOR,
                     );
                 }
             }

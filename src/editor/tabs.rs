@@ -29,6 +29,7 @@ pub struct TabManager {
     pub find: FindState,
     pub quick_open: QuickOpenState,
     pub quick_open_above_find: bool,
+    pub focused: bool,
 }
 
 impl Default for TabManager {
@@ -52,6 +53,7 @@ impl TabManager {
             find: FindState::new(),
             quick_open: QuickOpenState::new(),
             quick_open_above_find: false,
+            focused: true,
         }
     }
 
@@ -124,6 +126,7 @@ impl TabManager {
                     self.active_idx = Some(idx);
                     self.update_find_matches();
                 }
+                self.focused = true;
                 return;
             }
         }
@@ -139,6 +142,7 @@ impl TabManager {
             title: name,
         });
         self.active_idx = Some(self.tabs.len() - 1);
+        self.focused = true;
         self.update_find_matches();
     }
 
@@ -149,6 +153,7 @@ impl TabManager {
                     self.active_idx = Some(idx);
                     self.update_find_matches();
                 }
+                self.focused = true;
                 return;
             }
         }
@@ -164,6 +169,7 @@ impl TabManager {
             title: name,
         });
         self.active_idx = Some(self.tabs.len() - 1);
+        self.focused = true;
         self.update_find_matches();
     }
 
@@ -190,6 +196,7 @@ impl TabManager {
         if self.tabs.is_empty() {
             self.active_idx = None;
             self.scroll_x = 0;
+            self.focused = false;
         } else if let Some(cur) = self.active_idx {
             if cur >= self.tabs.len() || cur == idx {
                 self.active_idx = Some(self.tabs.len().saturating_sub(1));
@@ -214,6 +221,7 @@ impl TabManager {
         if self.tabs.is_empty() {
             self.active_idx = None;
             self.scroll_x = 0;
+            self.focused = false;
         } else if let Some(ref path) = prev_active_path {
             if let Some(pos) = self
                 .tabs
@@ -249,6 +257,7 @@ impl TabManager {
         if self.tabs.is_empty() {
             self.active_idx = None;
             self.scroll_x = 0;
+            self.focused = false;
         } else if let Some(ref path) = prev_active_path {
             if let Some(pos) = self
                 .tabs
@@ -276,6 +285,7 @@ impl TabManager {
         if self.tabs.is_empty() {
             self.active_idx = None;
             self.scroll_x = 0;
+            self.focused = false;
         } else if let Some(cur) = self.active_idx {
             if cur >= self.tabs.len() {
                 self.active_idx = Some(self.tabs.len().saturating_sub(1));
@@ -297,6 +307,7 @@ impl TabManager {
         self.pending_close = None;
         self.hovered_tab = None;
         self.hovered_close = None;
+        self.focused = false;
         self.update_find_matches();
     }
 }

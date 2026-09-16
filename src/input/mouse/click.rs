@@ -134,6 +134,8 @@ impl InputHandler {
         }
 
         if let Some(menu) = self.context_menu.take() {
+            tabs.focused = false;
+            terminal.focused = false;
             if mx >= menu.x && mx < menu.x + menu.width && my >= menu.y && my < menu.y + menu.height
             {
                 let row_h = menu.height / 2;
@@ -148,6 +150,8 @@ impl InputHandler {
         }
 
         if let Some(modal) = compute_modal_layout(tabs, screen_w, screen_h, char_w, line_h) {
+            tabs.focused = false;
+            terminal.focused = false;
             for btn in &modal.buttons {
                 if mx >= btn.x && mx < btn.x + btn.w && my >= btn.y && my < btn.y + btn.h {
                     if tabs.closing_app {
@@ -179,7 +183,9 @@ impl InputHandler {
                 start_x: self.mouse_x,
                 start_w: sidebar.width,
             };
-            return ActionEvent::None;
+            tabs.focused = false;
+            terminal.focused = false;
+            return ActionEvent::Redraw;
         }
 
         if terminal.is_open && mx >= layout.content_left {
@@ -192,10 +198,16 @@ impl InputHandler {
                     start_y: self.mouse_y,
                     start_h: terminal.height,
                 };
-                return ActionEvent::None;
+                terminal.focused = true;
+                tabs.focused = false;
+                tabs.find.focused = false;
+                return ActionEvent::Redraw;
             }
 
             if my >= tabbar_y && my < tabbar_y + tabbar_h {
+                terminal.focused = true;
+                tabs.focused = false;
+                tabs.find.focused = false;
                 let new_btn_w = "NEW".len() * char_w + 20;
                 let strip_min_x = layout.content_left + new_btn_w;
                 let strip_max_x = screen_w;
@@ -250,7 +262,7 @@ impl InputHandler {
                         }
                     }
                 }
-                return ActionEvent::None;
+                return ActionEvent::Redraw;
             }
 
             let shell_y = tabbar_y + TERMINAL_TAB_BAR_HEIGHT;
@@ -259,6 +271,9 @@ impl InputHandler {
             let track_h = shell_h;
 
             if mx >= vbar_x && mx < screen_w && my >= shell_y && my < shell_y + track_h {
+                terminal.focused = true;
+                tabs.focused = false;
+                tabs.find.focused = false;
                 let vis_lines = terminal.vis_rows(line_h);
                 if let Some(tab) = terminal.active_tab_mut() {
                     let total = tab.total_lines();
@@ -281,12 +296,13 @@ impl InputHandler {
                         }
                     }
                 }
-                terminal.focused = true;
                 return ActionEvent::Redraw;
             }
 
             if my >= shell_y && mx >= layout.content_left && mx < vbar_x {
                 terminal.focused = true;
+                tabs.focused = false;
+                tabs.find.focused = false;
                 let text_left = layout.content_left + 14;
                 let row = my.saturating_sub(shell_y + 4) / line_h.max(1);
                 if let Some(tab) = terminal.active_tab_mut() {
@@ -322,6 +338,10 @@ impl InputHandler {
         let has_folder = sidebar.root_folder.is_some();
 
         if sidebar.visible && mx < sidebar.width {
+            tabs.focused = false;
+            terminal.focused = false;
+            tabs.find.focused = false;
+
             if has_sidebar_scroll && mx >= bar_x {
                 let max_scroll = total_sidebar_h.saturating_sub(screen_h);
                 if let Some((thumb_y, thumb_h)) =
@@ -342,7 +362,7 @@ impl InputHandler {
                         return ActionEvent::Redraw;
                     }
                 }
-                return ActionEvent::None;
+                return ActionEvent::Redraw;
             }
 
             let content_y = my as i32 + sidebar.scroll_y as i32;
@@ -393,7 +413,7 @@ impl InputHandler {
                     }
                 }
             }
-            return ActionEvent::None;
+            return ActionEvent::Redraw;
         }
 
         if !tabs.tabs.is_empty() && my < TAB_BAR_HEIGHT {
@@ -412,10 +432,13 @@ impl InputHandler {
                         tabs.active_idx = Some(tab_idx);
                         tabs.update_find_matches();
                     }
+                    tabs.focused = true;
                     tabs.ensure_active_tab_visible(char_w, available_w);
                     super::hover::update_tab_hover(tabs, layout, char_w, mx, my);
                     return ActionEvent::Redraw;
                 }
+                tabs.focused = false;
+                return ActionEvent::Redraw;
             }
             return ActionEvent::None;
         }
@@ -450,6 +473,7 @@ impl InputHandler {
             terminal.focused = false;
             tabs.find.focused = false;
             tabs.quick_open.focused = true;
+            tabs.focused = false;
             let bar_x = layout.content_left;
             let bar_w = screen_w.saturating_sub(bar_x);
             let cw = char_w.max(1);
@@ -464,8 +488,10 @@ impl InputHandler {
                 && my < input_y + input_h
             {
                 tabs.quick_open.close();
+                tabs.focused = true;
                 if tabs.find.is_open {
                     tabs.find.focused = true;
+                    tabs.focused = false;
                 }
                 return ActionEvent::Redraw;
             }
@@ -533,6 +559,7 @@ impl InputHandler {
                 terminal.focused = false;
                 tabs.quick_open.focused = false;
                 tabs.find.focused = true;
+                tabs.focused = false;
                 let cw = char_w.max(1);
                 let input_h: usize = 24;
                 let input_y = bar_y + 6;
@@ -567,8 +594,10 @@ impl InputHandler {
                     && my < bottom_row_y + input_h
                 {
                     tabs.find.close();
+                    tabs.focused = true;
                     if tabs.quick_open.is_open {
                         tabs.quick_open.focused = true;
+                        tabs.focused = false;
                     }
                     return ActionEvent::Redraw;
                 }
@@ -835,121 +864,131 @@ impl InputHandler {
             tabs.quick_open.close();
         }
 
-        if let Some(active_tab) = tabs.active_tab_mut() {
-            let active_buf = &mut active_tab.buffer;
-            let total = active_buf.text().len_lines();
-            let usable_h = layout.content_bottom.saturating_sub(TAB_BAR_HEIGHT);
+        let is_vert_scroll = mx >= layout.content_right
+            && mx < screen_w
+            && my >= TAB_BAR_HEIGHT
+            && my < layout.content_bottom;
+        let is_horiz_scroll = my >= layout.content_bottom
+            && my < layout.content_bottom + SCROLLBAR_THICKNESS
+            && mx >= layout.bar_start_x
+            && mx < layout.content_right;
+        let is_text_area = my >= TAB_BAR_HEIGHT
+            && my < layout.content_bottom
+            && mx >= layout.content_left
+            && mx < layout.content_right;
 
-            if mx >= layout.content_right
-                && mx < screen_w
-                && my >= TAB_BAR_HEIGHT
-                && my < layout.content_bottom
-            {
-                let virtual_total = total + layout.visible_lines.saturating_sub(1);
-                if let Some((ty, th)) = calc_thumb(
-                    virtual_total,
-                    layout.visible_lines,
-                    active_buf.scroll_line,
-                    usable_h,
-                ) {
-                    let thumb_y = TAB_BAR_HEIGHT + ty;
-                    if my >= thumb_y && my < thumb_y + th {
-                        self.drag = DragState::Vertical {
-                            start_y: self.mouse_y,
-                            start_line: active_buf.scroll_line,
+        if is_vert_scroll || is_horiz_scroll || is_text_area {
+            tabs.focused = true;
+            terminal.focused = false;
+
+            if let Some(active_tab) = tabs.active_tab_mut() {
+                let active_buf = &mut active_tab.buffer;
+                let total = active_buf.text().len_lines();
+                let usable_h = layout.content_bottom.saturating_sub(TAB_BAR_HEIGHT);
+
+                if is_vert_scroll {
+                    let virtual_total = total + layout.visible_lines.saturating_sub(1);
+                    if let Some((ty, th)) = calc_thumb(
+                        virtual_total,
+                        layout.visible_lines,
+                        active_buf.scroll_line,
+                        usable_h,
+                    ) {
+                        let thumb_y = TAB_BAR_HEIGHT + ty;
+                        if my >= thumb_y && my < thumb_y + th {
+                            self.drag = DragState::Vertical {
+                                start_y: self.mouse_y,
+                                start_line: active_buf.scroll_line,
+                            };
+                        } else {
+                            let ratio =
+                                ((my - TAB_BAR_HEIGHT) as f64 / usable_h as f64).clamp(0.0, 1.0);
+                            let max_s = virtual_total.saturating_sub(layout.visible_lines);
+                            active_buf.scroll_line = (ratio * max_s as f64) as usize;
+                            self.drag = DragState::Vertical {
+                                start_y: self.mouse_y,
+                                start_line: active_buf.scroll_line,
+                            };
+                            return ActionEvent::Redraw;
+                        }
+                    }
+                } else if is_horiz_scroll {
+                    let track_w = layout.content_right.saturating_sub(layout.bar_start_x);
+                    if let Some((tx_offset, tw)) = calc_thumb(
+                        active_buf.max_line_len,
+                        layout.visible_cols,
+                        active_buf.scroll_col,
+                        track_w,
+                    ) {
+                        let tx = layout.bar_start_x + tx_offset;
+                        if mx >= tx && mx < tx + tw {
+                            self.drag = DragState::Horizontal {
+                                start_x: self.mouse_x,
+                                start_col: active_buf.scroll_col,
+                            };
+                        } else {
+                            let ratio =
+                                ((mx - layout.bar_start_x) as f64 / track_w as f64).clamp(0.0, 1.0);
+                            active_buf.scroll_col = (ratio
+                                * (active_buf.max_line_len - layout.visible_cols) as f64)
+                                as usize;
+                            self.drag = DragState::Horizontal {
+                                start_x: self.mouse_x,
+                                start_col: active_buf.scroll_col,
+                            };
+                            return ActionEvent::Redraw;
+                        }
+                    }
+                } else if is_text_area {
+                    if line_h > 0 && char_w > 0 {
+                        let row = my.saturating_sub(TAB_BAR_HEIGHT + TOP_PADDING) / line_h;
+                        let target_line = active_buf.scroll_line + row;
+                        let target_vcol = if mx >= layout.code_x {
+                            active_buf.scroll_col + (mx - layout.code_x) / char_w
+                        } else {
+                            0
                         };
-                    } else {
-                        let ratio =
-                            ((my - TAB_BAR_HEIGHT) as f64 / usable_h as f64).clamp(0.0, 1.0);
-                        let max_s = virtual_total.saturating_sub(layout.visible_lines);
-                        active_buf.scroll_line = (ratio * max_s as f64) as usize;
-                        self.drag = DragState::Vertical {
-                            start_y: self.mouse_y,
-                            start_line: active_buf.scroll_line,
+                        let now = std::time::Instant::now();
+                        let is_multi = if let Some(last_time) = self.last_click_time {
+                            let elapsed = now.duration_since(last_time);
+                            let dx = self.mouse_x - self.last_click_pos.0;
+                            let dy = self.mouse_y - self.last_click_pos.1;
+                            elapsed.as_millis() <= 500 && (dx * dx + dy * dy) <= 36.0
+                        } else {
+                            false
                         };
+                        if is_multi {
+                            self.click_count = (self.click_count % 3) + 1;
+                        } else {
+                            self.click_count = 1;
+                        }
+                        self.last_click_time = Some(now);
+                        self.last_click_pos = (self.mouse_x, self.mouse_y);
+
+                        active_buf.set_cursor_at_visual(target_line, target_vcol);
+                        match self.click_count {
+                            2 => {
+                                active_buf.select_word_at_cursor(target_vcol);
+                                self.drag = DragState::None;
+                            }
+                            3 => {
+                                active_buf.select_line_at_cursor();
+                                self.drag = DragState::None;
+                            }
+                            _ => {
+                                active_buf.selection_anchor = Some(active_buf.cursor_char);
+                                self.drag = DragState::SelectingText;
+                            }
+                        }
+                        active_buf.fit_view(layout.visible_lines, layout.visible_cols);
                         return ActionEvent::Redraw;
                     }
-                }
-            } else if my >= layout.content_bottom
-                && my < layout.content_bottom + SCROLLBAR_THICKNESS
-                && mx >= layout.bar_start_x
-                && mx < layout.content_right
-            {
-                let track_w = layout.content_right.saturating_sub(layout.bar_start_x);
-                if let Some((tx_offset, tw)) = calc_thumb(
-                    active_buf.max_line_len,
-                    layout.visible_cols,
-                    active_buf.scroll_col,
-                    track_w,
-                ) {
-                    let tx = layout.bar_start_x + tx_offset;
-                    if mx >= tx && mx < tx + tw {
-                        self.drag = DragState::Horizontal {
-                            start_x: self.mouse_x,
-                            start_col: active_buf.scroll_col,
-                        };
-                    } else {
-                        let ratio =
-                            ((mx - layout.bar_start_x) as f64 / track_w as f64).clamp(0.0, 1.0);
-                        active_buf.scroll_col = (ratio
-                            * (active_buf.max_line_len - layout.visible_cols) as f64)
-                            as usize;
-                        self.drag = DragState::Horizontal {
-                            start_x: self.mouse_x,
-                            start_col: active_buf.scroll_col,
-                        };
-                        return ActionEvent::Redraw;
-                    }
-                }
-            } else if my >= TAB_BAR_HEIGHT
-                && my < layout.content_bottom
-                && mx >= layout.content_left
-                && mx < layout.content_right
-            {
-                if line_h > 0 && char_w > 0 {
-                    let row = my.saturating_sub(TAB_BAR_HEIGHT + TOP_PADDING) / line_h;
-                    let target_line = active_buf.scroll_line + row;
-                    let target_vcol = if mx >= layout.code_x {
-                        active_buf.scroll_col + (mx - layout.code_x) / char_w
-                    } else {
-                        0
-                    };
-                    let now = std::time::Instant::now();
-                    let is_multi = if let Some(last_time) = self.last_click_time {
-                        let elapsed = now.duration_since(last_time);
-                        let dx = self.mouse_x - self.last_click_pos.0;
-                        let dy = self.mouse_y - self.last_click_pos.1;
-                        elapsed.as_millis() <= 500 && (dx * dx + dy * dy) <= 36.0
-                    } else {
-                        false
-                    };
-                    if is_multi {
-                        self.click_count = (self.click_count % 3) + 1;
-                    } else {
-                        self.click_count = 1;
-                    }
-                    self.last_click_time = Some(now);
-                    self.last_click_pos = (self.mouse_x, self.mouse_y);
-
-                    active_buf.set_cursor_at_visual(target_line, target_vcol);
-                    match self.click_count {
-                        2 => {
-                            active_buf.select_word_at_cursor(target_vcol);
-                            self.drag = DragState::None;
-                        }
-                        3 => {
-                            active_buf.select_line_at_cursor();
-                            self.drag = DragState::None;
-                        }
-                        _ => {
-                            active_buf.selection_anchor = Some(active_buf.cursor_char);
-                            self.drag = DragState::SelectingText;
-                        }
-                    }
-                    active_buf.fit_view(layout.visible_lines, layout.visible_cols);
-                    return ActionEvent::Redraw;
                 }
             }
+        } else {
+            tabs.focused = false;
+            terminal.focused = false;
+            return ActionEvent::Redraw;
         }
 
         ActionEvent::None

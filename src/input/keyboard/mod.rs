@@ -73,6 +73,8 @@ impl InputHandler {
             tabs.quick_open.close();
             if tabs.find.is_open {
                 tabs.find.focused = true;
+            } else {
+                tabs.focused = true;
             }
             return true;
         }
@@ -82,6 +84,7 @@ impl InputHandler {
             && matches!(event.logical_key, Key::Named(NamedKey::Escape))
         {
             tabs.find.focused = false;
+            tabs.focused = true;
             return true;
         }
 
@@ -123,9 +126,13 @@ impl InputHandler {
                 tabs.quick_open.close();
                 if tabs.find.is_open {
                     tabs.find.focused = true;
+                } else {
+                    tabs.focused = true;
                 }
             } else {
                 tabs.quick_open.open(sidebar.root_folder.as_deref());
+                tabs.focused = false;
+                terminal.focused = false;
                 if tabs.find.is_open {
                     tabs.quick_open_above_find = true;
                     tabs.find.focused = false;
@@ -154,6 +161,7 @@ impl InputHandler {
             ) {
                 if let Some(path) = opened {
                     tabs.open_file(path);
+                    tabs.focused = true;
                 }
                 return true;
             }
@@ -174,21 +182,37 @@ impl InputHandler {
             10
         };
 
-        if let Some(handled) = handle_editor_shortcut(
-            event,
-            tab,
-            find,
-            layout,
-            max_vis_chars,
-            is_ctrl,
-            is_shift,
-            is_alt,
-        ) {
-            if tabs.quick_open.is_open && find.is_open {
-                tabs.quick_open_above_find = false;
-                tabs.quick_open.focused = false;
+        let is_f = matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyF))
+            || match &event.logical_key {
+                Key::Character(c) => c.eq_ignore_ascii_case("f") || c == "\u{6}",
+                _ => false,
+            };
+        let is_s = matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyS))
+            || match &event.logical_key {
+                Key::Character(c) => c.eq_ignore_ascii_case("s") || c == "\u{13}",
+                _ => false,
+            };
+
+        if (is_ctrl && is_f) || (is_ctrl && is_s) || tabs.focused {
+            if let Some(handled) = handle_editor_shortcut(
+                event,
+                tab,
+                find,
+                layout,
+                max_vis_chars,
+                is_ctrl,
+                is_shift,
+                is_alt,
+            ) {
+                if is_ctrl && is_f {
+                    tabs.focused = false;
+                }
+                if tabs.quick_open.is_open && find.is_open {
+                    tabs.quick_open_above_find = false;
+                    tabs.quick_open.focused = false;
+                }
+                return handled;
             }
-            return handled;
         }
 
         if find.is_open && find.focused {
@@ -205,15 +229,19 @@ impl InputHandler {
             );
         }
 
-        handle_editor_text_input(
-            event,
-            &mut tab.buffer,
-            find,
-            layout,
-            is_ctrl,
-            is_shift,
-            is_alt,
-            clipboard,
-        )
+        if tabs.focused {
+            handle_editor_text_input(
+                event,
+                &mut tab.buffer,
+                find,
+                layout,
+                is_ctrl,
+                is_shift,
+                is_alt,
+                clipboard,
+            )
+        } else {
+            false
+        }
     }
 }
