@@ -1,26 +1,48 @@
-pub mod menu;
-pub mod tree;
-
-pub use menu::{MenuItem, MENU_ITEMS};
-pub use tree::{rebuild_tree, SidebarNode};
-
 use crate::config::{SIDEBAR_INITIAL_WIDTH, SIDEBAR_ROW_HEIGHT, TAB_BAR_HEIGHT};
+use crate::git::repo::scan_git_status;
+use crate::git::GitStatusSnapshot;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MenuItem {
+    Save,
+    NewFile,
+    NewFolder,
+    OpenFile,
+    OpenFolder,
+    CloseFolder,
+    Exit,
+}
+
+#[derive(Clone, Debug)]
+pub struct FileTreeNode {
+    pub path: PathBuf,
+    pub name: String,
+    pub is_dir: bool,
+    pub is_expanded: bool,
+    pub depth: usize,
+}
 
 pub struct Sidebar {
-    pub width: usize,
     pub visible: bool,
+    pub width: usize,
     pub scroll_y: usize,
     pub menu_expanded: bool,
     pub root_folder: Option<PathBuf>,
     pub root_expanded: bool,
-    pub nodes: Vec<SidebarNode>,
+    pub github_expanded: bool,
+    pub nodes: Vec<FileTreeNode>,
+    pub git_snapshot: GitStatusSnapshot,
     pub hovered_menu_header: bool,
     pub hovered_menu_item: Option<MenuItem>,
     pub hovered_terminal_header: bool,
+    pub hovered_github_header: bool,
+    pub hovered_github_row: Option<usize>,
     pub hovered_root_header: bool,
     pub hovered_tree_row: Option<usize>,
+    expanded_dirs: HashSet<PathBuf>,
 }
 
 impl Default for Sidebar {
@@ -32,36 +54,68 @@ impl Default for Sidebar {
 impl Sidebar {
     pub fn new() -> Self {
         Self {
-            width: SIDEBAR_INITIAL_WIDTH,
             visible: true,
+            width: SIDEBAR_INITIAL_WIDTH,
             scroll_y: 0,
             menu_expanded: false,
             root_folder: None,
             root_expanded: true,
+            github_expanded: true,
             nodes: Vec::new(),
+            git_snapshot: GitStatusSnapshot::default(),
             hovered_menu_header: false,
             hovered_menu_item: None,
             hovered_terminal_header: false,
+            hovered_github_header: false,
+            hovered_github_row: None,
             hovered_root_header: false,
             hovered_tree_row: None,
+            expanded_dirs: HashSet::new(),
         }
     }
 
-    #[inline(always)]
     pub fn menu_items(&self) -> &[(MenuItem, &'static str)] {
-        &MENU_ITEMS
+        &[
+            (MenuItem::Save, "Save"),
+            (MenuItem::NewFile, "New File"),
+            (MenuItem::NewFolder, "New Folder"),
+            (MenuItem::OpenFile, "Open File"),
+            (MenuItem::OpenFolder, "Open Folder"),
+            (MenuItem::CloseFolder, "Close Folder"),
+            (MenuItem::Exit, "Exit"),
+        ]
     }
 
     pub fn menu_total_height(&self) -> usize {
-        if self.menu_expanded {
-            TAB_BAR_HEIGHT + self.menu_items().len() * SIDEBAR_ROW_HEIGHT
-        } else {
-            TAB_BAR_HEIGHT
+        TAB_BAR_HEIGHT
+            + if self.menu_expanded {
+                self.menu_items().len() * SIDEBAR_ROW_HEIGHT
+            } else {
+                0
+            }
+    }
+
+    pub fn github_total_height(&self) -> usize {
+        if !self.git_snapshot.has_github_dir || self.root_folder.is_none() {
+            return 0;
         }
+        let mut h = TAB_BAR_HEIGHT;
+        if self.github_expanded {
+            let row_count = if self.git_snapshot.files.is_empty() {
+                1
+            } else {
+                self.git_snapshot.files.len()
+            };
+            h += row_count * SIDEBAR_ROW_HEIGHT;
+        }
+        h
     }
 
     pub fn total_content_height(&self) -> usize {
         let mut h = self.menu_total_height() + TAB_BAR_HEIGHT;
+        if self.root_folder.is_some() && self.git_snapshot.has_github_dir {
+            h += self.github_total_height();
+        }
         if self.root_folder.is_some() {
             h += TAB_BAR_HEIGHT;
             if self.root_expanded {
@@ -72,16 +126,17 @@ impl Sidebar {
     }
 
     pub fn root_name(&self) -> Option<String> {
-        self.root_folder
-            .as_ref()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            .map(|s| s.to_string())
+        self.root_folder.as_ref().map(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("FOLDER")
+                .to_uppercase()
+        })
     }
 
     pub fn clamp_scroll(&mut self, screen_h: usize) {
-        let total_h = self.total_content_height();
-        let max_scroll = total_h.saturating_sub(screen_h);
+        let total = self.total_content_height();
+        let max_scroll = total.saturating_sub(screen_h);
         if self.scroll_y > max_scroll {
             self.scroll_y = max_scroll;
         }
@@ -92,62 +147,137 @@ impl Sidebar {
     }
 
     pub fn toggle_root(&mut self) {
-        self.root_expanded = !self.root_expanded;
+        if self.root_expanded {
+            self.expanded_dirs.clear();
+            self.root_expanded = false;
+        } else {
+            self.root_expanded = true;
+        }
+        self.rebuild_tree();
+    }
+
+    pub fn toggle_github(&mut self) {
+        self.github_expanded = !self.github_expanded;
+    }
+
+    pub fn toggle_dir(&mut self, idx: usize) {
+        if let Some(node) = self.nodes.get(idx) {
+            if node.is_dir {
+                let path = node.path.clone();
+                if self.expanded_dirs.contains(&path) {
+                    self.expanded_dirs.retain(|p| !p.starts_with(&path));
+                } else {
+                    self.expanded_dirs.insert(path);
+                }
+                self.rebuild_tree();
+            }
+        }
+    }
+
+    pub fn refresh_git(&mut self) {
+        if let Some(ref root) = self.root_folder {
+            self.git_snapshot = scan_git_status(root);
+        } else {
+            self.git_snapshot = GitStatusSnapshot::default();
+        }
     }
 
     pub fn open_folder(&mut self, path: PathBuf) {
-        self.root_folder = Some(path);
+        let canon_path = fs::canonicalize(&path).unwrap_or(path);
+        self.root_folder = Some(canon_path);
+        self.expanded_dirs.clear();
         self.root_expanded = true;
-        self.scroll_y = 0;
-        self.refresh_folder();
+        self.github_expanded = true;
+        self.refresh_git();
+        self.rebuild_tree();
     }
 
     pub fn close_folder(&mut self) {
         self.root_folder = None;
         self.nodes.clear();
-        self.root_expanded = true;
+        self.expanded_dirs.clear();
+        self.git_snapshot = GitStatusSnapshot::default();
         self.scroll_y = 0;
     }
 
     pub fn refresh_folder(&mut self) {
-        let Some(ref root) = self.root_folder else {
+        if self.root_folder.is_some() {
+            self.refresh_git();
+            self.rebuild_tree();
+        }
+    }
+
+    fn rebuild_tree(&mut self) {
+        let Some(root) = self.root_folder.clone() else {
             self.nodes.clear();
             return;
         };
-        let expanded: HashSet<PathBuf> = self
-            .nodes
-            .iter()
-            .filter(|n| n.is_dir && n.is_expanded)
-            .map(|n| n.path.clone())
-            .collect();
-        self.nodes = rebuild_tree(root, &expanded);
+
+        let mut nodes = Vec::new();
+        Self::scan_dir(&root, 0, &self.expanded_dirs, &mut nodes);
+        self.nodes = nodes;
     }
 
-    pub fn toggle_dir(&mut self, node_idx: usize) {
-        if node_idx >= self.nodes.len() || !self.nodes[node_idx].is_dir {
+    fn scan_dir(
+        dir: &Path,
+        depth: usize,
+        expanded_dirs: &HashSet<PathBuf>,
+        out: &mut Vec<FileTreeNode>,
+    ) {
+        let Ok(entries) = fs::read_dir(dir) else {
             return;
+        };
+
+        let mut dirs = Vec::new();
+        let mut files = Vec::new();
+
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+
+            if name.starts_with('.') && name != ".env" && name != ".gitignore" && name != ".github"
+            {
+                continue;
+            }
+            if matches!(
+                name.as_str(),
+                ".git" | "target" | "node_modules" | ".certy_session"
+            ) {
+                continue;
+            }
+
+            if path.is_dir() {
+                dirs.push((name, path));
+            } else {
+                files.push((name, path));
+            }
         }
 
-        if self.nodes[node_idx].is_expanded {
-            self.nodes[node_idx].is_expanded = false;
-            let depth = self.nodes[node_idx].depth;
-            let mut remove_count = 0;
-            for next_node in &self.nodes[node_idx + 1..] {
-                if next_node.depth > depth {
-                    remove_count += 1;
-                } else {
-                    break;
-                }
+        dirs.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+        files.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+
+        for (name, path) in dirs {
+            let is_expanded = expanded_dirs.contains(&path);
+            out.push(FileTreeNode {
+                path: path.clone(),
+                name,
+                is_dir: true,
+                is_expanded,
+                depth,
+            });
+            if is_expanded {
+                Self::scan_dir(&path, depth + 1, expanded_dirs, out);
             }
-            if remove_count > 0 {
-                self.nodes.drain(node_idx + 1..node_idx + 1 + remove_count);
-            }
-        } else {
-            self.nodes[node_idx].is_expanded = true;
-            let dir_path = self.nodes[node_idx].path.clone();
-            let depth = self.nodes[node_idx].depth + 1;
-            let children = tree::read_dir_nodes(&dir_path, depth);
-            self.nodes.splice(node_idx + 1..node_idx + 1, children);
+        }
+
+        for (name, path) in files {
+            out.push(FileTreeNode {
+                path,
+                name,
+                is_dir: false,
+                is_expanded: false,
+                depth,
+            });
         }
     }
 }

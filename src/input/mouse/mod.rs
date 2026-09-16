@@ -29,7 +29,6 @@ impl InputHandler {
         if !self.is_left_down && self.drag != DragState::None {
             self.drag = DragState::None;
         }
-
         if matches!(self.drag, DragState::SidebarResize { .. }) {
             return CursorIcon::ColResize;
         }
@@ -46,7 +45,6 @@ impl InputHandler {
         if self.drag != DragState::None {
             return CursorIcon::Default;
         }
-
         if let Some(menu) = self.context_menu {
             return if menu.hovered_idx.is_some() {
                 CursorIcon::Pointer
@@ -54,7 +52,6 @@ impl InputHandler {
                 CursorIcon::Default
             };
         }
-
         if tabs.closing_app || tabs.closing_files || tabs.pending_close.is_some() {
             return if tabs.hovered_modal_btn.is_some() {
                 CursorIcon::Pointer
@@ -96,6 +93,8 @@ impl InputHandler {
             return if sidebar.hovered_menu_header
                 || sidebar.hovered_menu_item.is_some()
                 || sidebar.hovered_terminal_header
+                || sidebar.hovered_github_header
+                || sidebar.hovered_github_row.is_some()
                 || sidebar.hovered_root_header
                 || sidebar.hovered_tree_row.is_some()
             {
@@ -146,7 +145,6 @@ impl InputHandler {
                 let f_input_y = bar_y + 6;
                 let strip_max_x = layout.content_right.saturating_sub(close_w + 6 + 6);
                 let mx_i = mx as i32;
-
                 if my >= f_input_y
                     && my < f_input_y + 24
                     && mx_i >= f_input_x
@@ -156,7 +154,6 @@ impl InputHandler {
                 {
                     return CursorIcon::Text;
                 }
-
                 if tabs.find.is_replace {
                     let r_input_y = bar_y + 36;
                     if my >= r_input_y
@@ -245,6 +242,8 @@ impl InputHandler {
         let prev_sh = sidebar.hovered_menu_header;
         let prev_sitem = sidebar.hovered_menu_item;
         let prev_sterm = sidebar.hovered_terminal_header;
+        let prev_sgh = sidebar.hovered_github_header;
+        let prev_sgh_row = sidebar.hovered_github_row;
         let prev_sroot = sidebar.hovered_root_header;
         let prev_stree = sidebar.hovered_tree_row;
         let prev_th = tabs.hovered_tab;
@@ -259,6 +258,8 @@ impl InputHandler {
         sidebar.hovered_menu_header = false;
         sidebar.hovered_menu_item = None;
         sidebar.hovered_terminal_header = false;
+        sidebar.hovered_github_header = false;
+        sidebar.hovered_github_row = None;
         sidebar.hovered_root_header = false;
         sidebar.hovered_tree_row = None;
 
@@ -310,15 +311,40 @@ impl InputHandler {
                             }
                         } else if cy >= menu_total_h && cy < menu_total_h + TAB_BAR_HEIGHT {
                             sidebar.hovered_terminal_header = true;
-                        } else if has_folder && cy >= menu_total_h + TAB_BAR_HEIGHT {
-                            let rel_y = cy - (menu_total_h + TAB_BAR_HEIGHT);
-                            if rel_y < TAB_BAR_HEIGHT {
-                                sidebar.hovered_root_header = true;
-                            } else if sidebar.root_expanded {
-                                let tree_y = rel_y - TAB_BAR_HEIGHT;
-                                let node_idx = tree_y / SIDEBAR_ROW_HEIGHT;
-                                if node_idx < sidebar.nodes.len() {
-                                    sidebar.hovered_tree_row = Some(node_idx);
+                        } else if cy >= menu_total_h + TAB_BAR_HEIGHT {
+                            let mut sec_y = menu_total_h + TAB_BAR_HEIGHT;
+                            let has_github = has_folder && sidebar.git_snapshot.has_github_dir;
+                            let mut handled = false;
+                            if has_github {
+                                let gh_total_h = sidebar.github_total_height();
+                                if cy >= sec_y && cy < sec_y + TAB_BAR_HEIGHT {
+                                    sidebar.hovered_github_header = true;
+                                    handled = true;
+                                } else if sidebar.github_expanded
+                                    && cy >= sec_y + TAB_BAR_HEIGHT
+                                    && cy < sec_y + gh_total_h
+                                {
+                                    let rel_row = cy - (sec_y + TAB_BAR_HEIGHT);
+                                    let row_idx = rel_row / SIDEBAR_ROW_HEIGHT;
+                                    if !sidebar.git_snapshot.files.is_empty()
+                                        && row_idx < sidebar.git_snapshot.files.len()
+                                    {
+                                        sidebar.hovered_github_row = Some(row_idx);
+                                    }
+                                    handled = true;
+                                }
+                                sec_y += gh_total_h;
+                            }
+                            if !handled && has_folder && cy >= sec_y {
+                                let rel_y = cy - sec_y;
+                                if rel_y < TAB_BAR_HEIGHT {
+                                    sidebar.hovered_root_header = true;
+                                } else if sidebar.root_expanded {
+                                    let tree_y = rel_y - TAB_BAR_HEIGHT;
+                                    let node_idx = tree_y / SIDEBAR_ROW_HEIGHT;
+                                    if node_idx < sidebar.nodes.len() {
+                                        sidebar.hovered_tree_row = Some(node_idx);
+                                    }
                                 }
                             }
                         }
@@ -332,6 +358,8 @@ impl InputHandler {
         let mut changed = prev_sh != sidebar.hovered_menu_header
             || prev_sitem != sidebar.hovered_menu_item
             || prev_sterm != sidebar.hovered_terminal_header
+            || prev_sgh != sidebar.hovered_github_header
+            || prev_sgh_row != sidebar.hovered_github_row
             || prev_sroot != sidebar.hovered_root_header
             || prev_stree != sidebar.hovered_tree_row
             || prev_th != tabs.hovered_tab

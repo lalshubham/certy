@@ -1,6 +1,7 @@
 mod app;
 mod config;
 mod editor;
+mod git;
 mod input;
 mod session;
 mod sidebar;

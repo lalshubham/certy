@@ -98,6 +98,7 @@ impl InputHandler {
         self.is_left_down = true;
         let mx = self.mouse_x.max(0.0) as usize;
         let my = self.mouse_y.max(0.0) as usize;
+
         let (find_y, qo_y) = compute_bottom_bars_y(tabs, layout);
         let find_h = if tabs.find.is_open {
             if tabs.find.is_replace {
@@ -108,7 +109,6 @@ impl InputHandler {
         } else {
             0
         };
-
         let is_find_bar =
             tabs.find.is_open && my >= find_y && my < find_y + find_h && mx >= layout.content_left;
         let is_quick_open_bar =
@@ -192,7 +192,6 @@ impl InputHandler {
             let term_y = screen_h.saturating_sub(terminal.height);
             let tabbar_y = term_y + 1;
             let tabbar_h = TERMINAL_TAB_BAR_HEIGHT;
-
             if (my as i32 - term_y as i32).abs() <= 3 {
                 self.drag = DragState::TerminalResize {
                     start_y: self.mouse_y,
@@ -203,7 +202,6 @@ impl InputHandler {
                 tabs.find.focused = false;
                 return ActionEvent::Redraw;
             }
-
             if my >= tabbar_y && my < tabbar_y + tabbar_h {
                 terminal.focused = true;
                 tabs.focused = false;
@@ -212,7 +210,6 @@ impl InputHandler {
                 let strip_min_x = layout.content_left + new_btn_w;
                 let strip_max_x = screen_w;
                 let available_w = strip_max_x.saturating_sub(strip_min_x);
-
                 if mx < strip_min_x {
                     let vis_rows = terminal.vis_rows(line_h);
                     let text_left = layout.content_left + 14;
@@ -269,7 +266,6 @@ impl InputHandler {
             let shell_h = screen_h.saturating_sub(shell_y);
             let vbar_x = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
             let track_h = shell_h;
-
             if mx >= vbar_x && mx < screen_w && my >= shell_y && my < shell_y + track_h {
                 terminal.focused = true;
                 tabs.focused = false;
@@ -341,7 +337,6 @@ impl InputHandler {
             tabs.focused = false;
             terminal.focused = false;
             tabs.find.focused = false;
-
             if has_sidebar_scroll && mx >= bar_x {
                 let max_scroll = total_sidebar_h.saturating_sub(screen_h);
                 if let Some((thumb_y, thumb_h)) =
@@ -369,12 +364,10 @@ impl InputHandler {
             if content_y >= 0 {
                 let cy = content_y as usize;
                 let menu_total_h = sidebar.menu_total_height();
-
                 if cy < TAB_BAR_HEIGHT {
                     sidebar.toggle_menu();
                     return ActionEvent::Redraw;
                 }
-
                 if sidebar.menu_expanded && cy < menu_total_h {
                     let item_idx = (cy - TAB_BAR_HEIGHT) / SIDEBAR_ROW_HEIGHT;
                     let items = sidebar.menu_items();
@@ -387,27 +380,53 @@ impl InputHandler {
                         }
                     }
                 }
-
                 if cy >= menu_total_h && cy < menu_total_h + TAB_BAR_HEIGHT {
                     return ActionEvent::ToggleTerminal;
                 }
+                if cy >= menu_total_h + TAB_BAR_HEIGHT {
+                    let mut sec_y = menu_total_h + TAB_BAR_HEIGHT;
+                    let has_github = has_folder && sidebar.git_snapshot.has_github_dir;
+                    if has_github {
+                        let gh_total_h = sidebar.github_total_height();
+                        if cy >= sec_y && cy < sec_y + TAB_BAR_HEIGHT {
+                            sidebar.toggle_github();
+                            sidebar.clamp_scroll(screen_h);
+                            return ActionEvent::Redraw;
+                        } else if sidebar.github_expanded
+                            && cy >= sec_y + TAB_BAR_HEIGHT
+                            && cy < sec_y + gh_total_h
+                        {
+                            let rel_row = cy - (sec_y + TAB_BAR_HEIGHT);
+                            let row_idx = rel_row / SIDEBAR_ROW_HEIGHT;
+                            if row_idx < sidebar.git_snapshot.files.len() {
+                                return ActionEvent::OpenDiff(
+                                    sidebar.git_snapshot.files[row_idx].path.clone(),
+                                );
+                            }
+                            return ActionEvent::Redraw;
+                        }
+                        sec_y += gh_total_h;
+                    }
 
-                if has_folder && cy >= menu_total_h + TAB_BAR_HEIGHT {
-                    let rel_y = cy - (menu_total_h + TAB_BAR_HEIGHT);
-                    if rel_y < TAB_BAR_HEIGHT {
-                        sidebar.toggle_root();
-                        sidebar.clamp_scroll(screen_h);
-                        return ActionEvent::Redraw;
-                    } else if sidebar.root_expanded {
-                        let tree_y = rel_y - TAB_BAR_HEIGHT;
-                        let node_idx = tree_y / SIDEBAR_ROW_HEIGHT;
-                        if node_idx < sidebar.nodes.len() {
-                            if sidebar.nodes[node_idx].is_dir {
-                                sidebar.toggle_dir(node_idx);
-                                sidebar.clamp_scroll(screen_h);
-                                return ActionEvent::Redraw;
-                            } else {
-                                return ActionEvent::OpenFile(sidebar.nodes[node_idx].path.clone());
+                    if has_folder && cy >= sec_y {
+                        let rel_y = cy - sec_y;
+                        if rel_y < TAB_BAR_HEIGHT {
+                            sidebar.toggle_root();
+                            sidebar.clamp_scroll(screen_h);
+                            return ActionEvent::Redraw;
+                        } else if sidebar.root_expanded {
+                            let tree_y = rel_y - TAB_BAR_HEIGHT;
+                            let node_idx = tree_y / SIDEBAR_ROW_HEIGHT;
+                            if node_idx < sidebar.nodes.len() {
+                                if sidebar.nodes[node_idx].is_dir {
+                                    sidebar.toggle_dir(node_idx);
+                                    sidebar.clamp_scroll(screen_h);
+                                    return ActionEvent::Redraw;
+                                } else {
+                                    return ActionEvent::OpenFile(
+                                        sidebar.nodes[node_idx].path.clone(),
+                                    );
+                                }
                             }
                         }
                     }
@@ -481,7 +500,6 @@ impl InputHandler {
             let input_y = qo_y + 6;
             let close_w = "Close".len() * cw + 16;
             let close_btn_x = (bar_x + bar_w).saturating_sub(close_w + 6);
-
             if mx >= close_btn_x
                 && mx < close_btn_x + close_w
                 && my >= input_y
@@ -495,7 +513,6 @@ impl InputHandler {
                 }
                 return ActionEvent::Redraw;
             }
-
             let input_x = bar_x + 6;
             let input_w = close_btn_x.saturating_sub(input_x + 6);
             if mx >= input_x && mx < input_x + input_w && my >= input_y && my < input_y + input_h {
@@ -514,7 +531,6 @@ impl InputHandler {
                     .min(q_len.saturating_sub(max_vis_chars));
                 tabs.quick_open.cursor = (scroll_offset + char_offset).min(q_len);
                 tabs.quick_open.selection_anchor = Some(tabs.quick_open.cursor);
-
                 let now = std::time::Instant::now();
                 let is_multi = if let Some(last_time) = self.last_click_time {
                     let elapsed = now.duration_since(last_time);
@@ -531,7 +547,6 @@ impl InputHandler {
                 }
                 self.last_click_time = Some(now);
                 self.last_click_pos = (self.mouse_x, self.mouse_y);
-
                 match self.click_count {
                     2 | 3 => {
                         tabs.quick_open.select_all();
@@ -550,7 +565,6 @@ impl InputHandler {
             let bar_h = if tabs.find.is_replace { 66 } else { 36 };
             let bar_y = find_y;
             let bar_w = screen_w.saturating_sub(layout.content_left);
-
             if my >= bar_y
                 && my < bar_y + bar_h
                 && mx >= layout.content_left
@@ -570,7 +584,6 @@ impl InputHandler {
                 };
                 let close_w = "Close".len() * cw + 16;
                 let close_btn_x = (layout.content_left + bar_w).saturating_sub(close_w + 6);
-
                 let now = std::time::Instant::now();
                 let is_multi = if let Some(last_time) = self.last_click_time {
                     let elapsed = now.duration_since(last_time);
@@ -587,7 +600,6 @@ impl InputHandler {
                 }
                 self.last_click_time = Some(now);
                 self.last_click_pos = (self.mouse_x, self.mouse_y);
-
                 if mx >= close_btn_x
                     && mx < close_btn_x + close_w
                     && my >= bottom_row_y
@@ -601,25 +613,21 @@ impl InputHandler {
                     }
                     return ActionEvent::Redraw;
                 }
-
                 let strip_min_x = layout.content_left;
                 let toggle_label = if tabs.find.is_replace { "[-]" } else { "[+]" };
                 let toggle_w = (toggle_label.len() * cw + 6) as i32;
                 let toggle_x = strip_min_x as i32 + 6;
                 let mx_i = mx as i32;
-
                 if my >= bottom_row_y && my < bottom_row_y + input_h {
                     if mx_i >= toggle_x && mx_i < toggle_x + toggle_w {
                         tabs.find.is_replace = !tabs.find.is_replace;
                         return ActionEvent::Redraw;
                     }
                 }
-
                 let scrollable_min_x = toggle_x as usize + toggle_w as usize + 6;
                 let strip_max_x = close_btn_x.saturating_sub(6);
                 let mut cur_x = scrollable_min_x as i32 - tabs.find.scroll_x as i32;
                 let find_input_w: usize = 240;
-
                 if my >= input_y && my < input_y + input_h {
                     if mx_i >= cur_x
                         && mx_i < cur_x + find_input_w as i32
@@ -642,7 +650,6 @@ impl InputHandler {
                             .min(q_len.saturating_sub(max_vis_chars));
                         tabs.find.query_cursor = (scroll_offset + char_offset).min(q_len);
                         tabs.find.query_selection_anchor = Some(tabs.find.query_cursor);
-
                         match self.click_count {
                             2 => {
                                 tabs.find.select_word();
@@ -659,7 +666,6 @@ impl InputHandler {
                         return ActionEvent::Redraw;
                     }
                 }
-
                 cur_x += find_input_w as i32 + 6;
                 let mc_w = ("Match Case".len() * cw + 16) as i32;
                 let ww_w = ("Whole Word".len() * cw + 16) as i32;
@@ -667,7 +673,6 @@ impl InputHandler {
                 let prev_w = ("Previous".len() * cw + 16) as i32;
                 let next_w = ("Next".len() * cw + 16) as i32;
                 let has_matches = !tabs.find.matches.is_empty();
-
                 if my >= input_y && my < input_y + input_h {
                     if mx_i >= cur_x
                         && mx_i < cur_x + mc_w
@@ -764,7 +769,6 @@ impl InputHandler {
                         return ActionEvent::Redraw;
                     }
                 }
-
                 if tabs.find.is_replace {
                     let rep_input_y = bottom_row_y;
                     let mut r_cur_x = scrollable_min_x as i32 - tabs.find.scroll_x as i32;
@@ -791,7 +795,6 @@ impl InputHandler {
                                 .min(r_len.saturating_sub(max_vis_chars));
                             tabs.find.replace_cursor = (scroll_offset + char_offset).min(r_len);
                             tabs.find.replace_selection_anchor = Some(tabs.find.replace_cursor);
-
                             match self.click_count {
                                 2 => {
                                     tabs.find.select_word();
@@ -808,11 +811,9 @@ impl InputHandler {
                             return ActionEvent::Redraw;
                         }
                     }
-
                     r_cur_x += rep_input_w as i32 + 6;
                     let rep_w = ("Replace".len() * cw + 16) as i32;
                     let all_w = ("Replace All".len() * cw + 16) as i32;
-
                     if my >= rep_input_y && my < rep_input_y + input_h {
                         if mx_i >= r_cur_x
                             && mx_i < r_cur_x + rep_w
@@ -832,7 +833,6 @@ impl InputHandler {
                             }
                             return ActionEvent::Redraw;
                         }
-
                         r_cur_x += rep_w + 6;
                         if mx_i >= r_cur_x
                             && mx_i < r_cur_x + all_w
@@ -880,12 +880,14 @@ impl InputHandler {
         if is_vert_scroll || is_horiz_scroll || is_text_area {
             tabs.focused = true;
             terminal.focused = false;
-
             if let Some(active_tab) = tabs.active_tab_mut() {
+                let total = if active_tab.is_diff {
+                    active_tab.diff.as_ref().map(|d| d.lines.len()).unwrap_or(0)
+                } else {
+                    active_tab.buffer.text().len_lines()
+                };
                 let active_buf = &mut active_tab.buffer;
-                let total = active_buf.text().len_lines();
                 let usable_h = layout.content_bottom.saturating_sub(TAB_BAR_HEIGHT);
-
                 if is_vert_scroll {
                     let virtual_total = total + layout.visible_lines.saturating_sub(1);
                     if let Some((ty, th)) = calc_thumb(
@@ -964,7 +966,6 @@ impl InputHandler {
                         }
                         self.last_click_time = Some(now);
                         self.last_click_pos = (self.mouse_x, self.mouse_y);
-
                         active_buf.set_cursor_at_visual(target_line, target_vcol);
                         match self.click_count {
                             2 => {

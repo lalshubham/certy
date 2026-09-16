@@ -11,6 +11,7 @@ pub enum ActionEvent {
     Menu(MenuItem),
     ToggleTerminal,
     OpenFile(PathBuf),
+    OpenDiff(PathBuf),
     SaveTab(usize),
     DiscardTab(usize),
     SaveAllAndExit,

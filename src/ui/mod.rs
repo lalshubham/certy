@@ -8,7 +8,7 @@ pub use font::FontManager;
 pub use layout::{compute_layout, ViewportLayout};
 pub use overlays::ContextMenu;
 
-use crate::config::COLOR_BACKGROUND;
+use crate::config::{COLOR_BACKGROUND, SCROLLBAR_THICKNESS};
 use crate::editor::TabManager;
 use crate::sidebar::Sidebar;
 use crate::terminal::Terminal;
@@ -16,7 +16,9 @@ use overlays::{compute_modal_layout, render_context_menu, render_modal};
 use softbuffer::{Context, Surface};
 use std::num::NonZeroU32;
 use std::sync::Arc;
-use views::{render_editor_buffer, render_editor_tabs, render_sidebar, render_terminal};
+use views::{
+    render_diff_view, render_editor_buffer, render_editor_tabs, render_sidebar, render_terminal,
+};
 use winit::window::Window;
 
 pub struct Renderer {
@@ -99,13 +101,21 @@ impl Renderer {
             0
         };
         let quick_open_h = if tabs.quick_open.is_open { 36 } else { 0 };
+
+        let is_diff = tabs.active_tab().map(|t| t.is_diff).unwrap_or(false);
         let total_lines = tabs
             .active_tab()
-            .map(|t| t.buffer.text().len_lines())
+            .map(|t| {
+                if t.is_diff {
+                    t.diff.as_ref().map(|d| d.lines.len()).unwrap_or(0)
+                } else {
+                    t.buffer.text().len_lines()
+                }
+            })
             .unwrap_or(0);
+
         let sidebar_w = if sidebar.visible { sidebar.width } else { 0 };
         let layout = self.layout(total_lines, sidebar_w, term_h, find_h + quick_open_h);
-
         let mut frame = self.surface.buffer_mut().expect("Failed to get buffer");
         frame.fill(COLOR_BACKGROUND);
 
@@ -118,7 +128,6 @@ impl Renderer {
             screen_w,
             screen_h,
         );
-
         render_editor_tabs(
             &mut frame,
             &mut self.font_manager,
@@ -128,15 +137,40 @@ impl Renderer {
             screen_h,
         );
 
-        render_editor_buffer(
-            &mut frame,
-            &mut self.font_manager,
-            tabs,
-            &layout,
-            total_lines,
-            screen_w,
-            screen_h,
-        );
+        if is_diff {
+            if let Some(tab) = tabs.active_tab() {
+                render_diff_view(
+                    &mut frame,
+                    &mut self.font_manager,
+                    tab,
+                    &layout,
+                    screen_w,
+                    screen_h,
+                );
+            }
+            if tabs.quick_open.is_open {
+                let base_y = layout.content_bottom + SCROLLBAR_THICKNESS;
+                views::quick_open_bar::render_quick_open_bar(
+                    &mut frame,
+                    &mut self.font_manager,
+                    tabs,
+                    &layout,
+                    screen_w,
+                    screen_h,
+                    base_y,
+                );
+            }
+        } else {
+            render_editor_buffer(
+                &mut frame,
+                &mut self.font_manager,
+                tabs,
+                &layout,
+                total_lines,
+                screen_w,
+                screen_h,
+            );
+        }
 
         render_terminal(
             &mut frame,

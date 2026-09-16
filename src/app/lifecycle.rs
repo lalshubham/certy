@@ -110,22 +110,26 @@ impl App {
                 self.tabs.active_idx = Some(act);
             }
         }
+
+        self.tabs
+            .refresh_all_git_decorations(self.sidebar.root_folder.as_deref());
     }
 
     pub fn sync_filesystem(&mut self) -> bool {
         let mut changed = false;
-        let root_to_close = if let Some(ref root) = self.sidebar.root_folder {
+        let root_opt = self.sidebar.root_folder.clone();
+        let root_to_close = if let Some(root) = root_opt {
             if !root.exists() {
-                Some(root.clone())
+                Some(root)
             } else {
                 self.sidebar.refresh_folder();
+                self.tabs.refresh_active_git_decorations(Some(&root));
                 changed = true;
                 None
             }
         } else {
             None
         };
-
         if let Some(root) = root_to_close {
             if let Some(rec_dir) = recovery_dir() {
                 for tab in &self.tabs.tabs {
@@ -138,6 +142,7 @@ impl App {
             }
             self.tabs.close_folder_tabs(&root);
             self.sidebar.close_folder();
+            self.tabs.refresh_all_git_decorations(None);
             let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             if !self.terminal.default_cwd.exists() {
                 self.terminal.default_cwd = fallback_cwd.clone();
@@ -149,7 +154,6 @@ impl App {
             }
             changed = true;
         }
-
         if let Some(rec_dir) = recovery_dir() {
             for tab in &self.tabs.tabs {
                 if let Some(ref p) = tab.buffer.file_path {
@@ -159,11 +163,9 @@ impl App {
                 }
             }
         }
-
         if self.tabs.close_missing_files() {
             changed = true;
         }
-
         if changed {
             save_session(&self.sidebar, &self.tabs);
             if let Some(ref r) = self.renderer {

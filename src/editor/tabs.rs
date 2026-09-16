@@ -1,18 +1,53 @@
 use super::buffer::EditorBuffer;
 use super::find::FindState;
 use super::quick_open::QuickOpenState;
+use crate::git::diff::{compute_file_diff, compute_gutter_decorations, FileDiff};
+use crate::git::repo::get_head_file_content;
+use crate::git::GutterDecorations;
 use std::path::{Path, PathBuf};
 
 pub struct Tab {
     pub buffer: EditorBuffer,
     pub title: String,
+    pub is_diff: bool,
+    pub diff: Option<FileDiff>,
+    pub gutter_decorations: GutterDecorations,
 }
 
 impl Tab {
     #[inline]
     pub fn width(&self, char_w: usize) -> usize {
-        let dirty_len = if self.buffer.is_modified { 2 } else { 0 };
+        let dirty_len = if self.buffer.is_modified && !self.is_diff {
+            2
+        } else {
+            0
+        };
         (self.title.len() + dirty_len) * char_w + 50
+    }
+
+    pub fn update_git_status(&mut self, workspace_root: Option<&Path>) {
+        let Some(root) = workspace_root else {
+            self.gutter_decorations = GutterDecorations::default();
+            if self.is_diff {
+                self.diff = None;
+            }
+            return;
+        };
+        let Some(ref file_path) = self.buffer.file_path else {
+            self.gutter_decorations = GutterDecorations::default();
+            if self.is_diff {
+                self.diff = None;
+            }
+            return;
+        };
+
+        let current_text = self.buffer.text().to_string();
+        let head_content = get_head_file_content(root, file_path).unwrap_or_default();
+
+        self.gutter_decorations = compute_gutter_decorations(&head_content, &current_text);
+        if self.is_diff {
+            self.diff = Some(compute_file_diff(&head_content, &current_text));
+        }
     }
 }
 
@@ -66,7 +101,7 @@ impl TabManager {
     }
 
     pub fn has_modified(&self) -> bool {
-        self.tabs.iter().any(|t| t.buffer.is_modified)
+        self.tabs.iter().any(|t| t.buffer.is_modified && !t.is_diff)
     }
 
     pub fn total_tabs_width(&self, char_w: usize) -> usize {
@@ -121,7 +156,7 @@ impl TabManager {
 
     pub fn open_file(&mut self, path: PathBuf) {
         for (idx, tab) in self.tabs.iter().enumerate() {
-            if tab.buffer.file_path.as_ref() == Some(&path) {
+            if !tab.is_diff && tab.buffer.file_path.as_ref() == Some(&path) {
                 if self.active_idx != Some(idx) {
                     self.active_idx = Some(idx);
                     self.update_find_matches();
@@ -140,15 +175,58 @@ impl TabManager {
         self.tabs.push(Tab {
             buffer,
             title: name,
+            is_diff: false,
+            diff: None,
+            gutter_decorations: GutterDecorations::default(),
         });
         self.active_idx = Some(self.tabs.len() - 1);
         self.focused = true;
         self.update_find_matches();
     }
 
+    pub fn open_diff(&mut self, path: PathBuf, workspace_root: &Path) {
+        let diff_title = format!(
+            "{} (Diff)",
+            path.file_name().and_then(|n| n.to_str()).unwrap_or("file")
+        );
+        for (idx, tab) in self.tabs.iter().enumerate() {
+            if tab.is_diff && tab.buffer.file_path.as_ref() == Some(&path) {
+                self.active_idx = Some(idx);
+                self.tabs[idx].update_git_status(Some(workspace_root));
+                self.focused = true;
+                return;
+            }
+        }
+        let mut buffer = EditorBuffer::new();
+        let _ = buffer.load_file(path);
+        let mut tab = Tab {
+            buffer,
+            title: diff_title,
+            is_diff: true,
+            diff: None,
+            gutter_decorations: GutterDecorations::default(),
+        };
+        tab.update_git_status(Some(workspace_root));
+        self.tabs.push(tab);
+        self.active_idx = Some(self.tabs.len() - 1);
+        self.focused = true;
+    }
+
+    pub fn refresh_active_git_decorations(&mut self, workspace_root: Option<&Path>) {
+        if let Some(tab) = self.active_tab_mut() {
+            tab.update_git_status(workspace_root);
+        }
+    }
+
+    pub fn refresh_all_git_decorations(&mut self, workspace_root: Option<&Path>) {
+        for tab in &mut self.tabs {
+            tab.update_git_status(workspace_root);
+        }
+    }
+
     pub fn open_recovered(&mut self, path: PathBuf, recovery_path: &Path) {
         for (idx, tab) in self.tabs.iter().enumerate() {
-            if tab.buffer.file_path.as_ref() == Some(&path) {
+            if !tab.is_diff && tab.buffer.file_path.as_ref() == Some(&path) {
                 if self.active_idx != Some(idx) {
                     self.active_idx = Some(idx);
                     self.update_find_matches();
@@ -167,6 +245,9 @@ impl TabManager {
         self.tabs.push(Tab {
             buffer,
             title: name,
+            is_diff: false,
+            diff: None,
+            gutter_decorations: GutterDecorations::default(),
         });
         self.active_idx = Some(self.tabs.len() - 1);
         self.focused = true;
@@ -177,7 +258,7 @@ impl TabManager {
         if idx >= self.tabs.len() {
             return;
         }
-        if self.tabs[idx].buffer.is_modified {
+        if self.tabs[idx].buffer.is_modified && !self.tabs[idx].is_diff {
             self.pending_close = Some(idx);
             self.closing_app = false;
             self.closing_files = false;
@@ -281,7 +362,7 @@ impl TabManager {
     }
 
     pub fn close_unmodified(&mut self) {
-        self.tabs.retain(|t| t.buffer.is_modified);
+        self.tabs.retain(|t| t.buffer.is_modified && !t.is_diff);
         if self.tabs.is_empty() {
             self.active_idx = None;
             self.scroll_x = 0;

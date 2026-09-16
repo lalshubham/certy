@@ -2,6 +2,7 @@ use super::find_bar::render_find_bar;
 use super::quick_open_bar::render_quick_open_bar;
 use crate::config::*;
 use crate::editor::TabManager;
+use crate::git::LineChangeKind;
 use crate::syntax::{self, Language};
 use crate::ui::canvas::draw_solid_rect;
 use crate::ui::font::FontManager;
@@ -58,6 +59,8 @@ pub fn render_editor_buffer(
         .max(3);
 
         let mut line_chars = Vec::with_capacity(128);
+        let bar_x = gutter_x + layout.gutter_width.saturating_sub(GIT_GUTTER_BAR_WIDTH);
+
         for row in 0..=layout.visible_lines {
             let line_idx = buffer.scroll_line + row;
             if line_idx >= total_lines {
@@ -66,6 +69,47 @@ pub fn render_editor_buffer(
             let y = TAB_BAR_HEIGHT + TOP_PADDING + row * lh;
             if y + lh > layout.content_bottom {
                 break;
+            }
+
+            if let Some(change) = tab.gutter_decorations.lines.get(&line_idx) {
+                match change {
+                    LineChangeKind::Added => {
+                        draw_solid_rect(
+                            frame,
+                            screen_w,
+                            screen_h,
+                            bar_x,
+                            y,
+                            GIT_GUTTER_BAR_WIDTH,
+                            lh,
+                            COLOR_GIT_ADDED,
+                        );
+                    }
+                    LineChangeKind::Modified => {
+                        draw_solid_rect(
+                            frame,
+                            screen_w,
+                            screen_h,
+                            bar_x,
+                            y,
+                            GIT_GUTTER_BAR_WIDTH,
+                            lh,
+                            COLOR_GIT_MODIFIED,
+                        );
+                    }
+                    LineChangeKind::DeletedAbove => {
+                        draw_solid_rect(
+                            frame,
+                            screen_w,
+                            screen_h,
+                            bar_x,
+                            y,
+                            GIT_GUTTER_BAR_WIDTH,
+                            3,
+                            COLOR_GIT_DELETED,
+                        );
+                    }
+                }
             }
 
             let num_str = format!("{:>width$}", line_idx + 1, width = digits);
@@ -100,7 +144,6 @@ pub fn render_editor_buffer(
                 let start_vcol = current_vcol;
                 let end_vcol = current_vcol + char_w_cols;
                 current_vcol = end_vcol;
-
                 if end_vcol <= buffer.scroll_col {
                     continue;
                 }
@@ -109,10 +152,8 @@ pub fn render_editor_buffer(
                 if text_x >= layout.content_right as i32 {
                     break;
                 }
-
                 let char_pixel_w = char_w_cols * cw;
                 let char_idx = line_start_char + char_idx_in_line;
-
                 if let Some((start, end)) = sel_range {
                     if char_idx >= start && char_idx < end {
                         let draw_x = text_x.max(layout.code_x as i32) as usize;
@@ -129,7 +170,6 @@ pub fn render_editor_buffer(
                         );
                     }
                 }
-
                 if tabs.find.is_open && !tabs.find.matches.is_empty() {
                     for (m_idx, &(m_start, m_end)) in tabs.find.matches.iter().enumerate() {
                         if char_idx >= m_start && char_idx < m_end {
@@ -148,12 +188,10 @@ pub fn render_editor_buffer(
                         }
                     }
                 }
-
                 let char_color = syntax_colors
                     .get(char_idx_in_line)
                     .copied()
                     .unwrap_or(COLOR_TEXT_DEFAULT);
-
                 if ch != '\t' && !ch.is_control() && !ch.is_whitespace() {
                     fonts.draw_char(frame, ch, text_x, y as i32, screen_w, screen_h, char_color);
                 }

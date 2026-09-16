@@ -186,8 +186,12 @@ pub fn process_drag(
             start_line,
         } => {
             if let Some(active_tab) = tabs.active_tab_mut() {
+                let total = if active_tab.is_diff {
+                    active_tab.diff.as_ref().map(|d| d.lines.len()).unwrap_or(0)
+                } else {
+                    active_tab.buffer.text().len_lines()
+                };
                 let active_buf = &mut active_tab.buffer;
-                let total = active_buf.text().len_lines();
                 let usable_h = layout.content_bottom.saturating_sub(TAB_BAR_HEIGHT);
                 let virtual_total = total + layout.visible_lines.saturating_sub(1);
                 if let Some((_, th)) = calc_thumb(

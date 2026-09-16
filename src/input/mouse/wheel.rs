@@ -42,10 +42,8 @@ impl InputHandler {
                 (l, c)
             }
         };
-
         let mx = self.mouse_x.max(0.0) as usize;
         let my = self.mouse_y.max(0.0) as usize;
-
         if sidebar.visible && mx < sidebar.width {
             let total_h = sidebar.total_content_height();
             if total_h > screen_h {
@@ -60,12 +58,10 @@ impl InputHandler {
             }
             return false;
         }
-
         if terminal.is_open && mx >= layout.content_left {
             let term_y = screen_h.saturating_sub(terminal.height);
             let tabbar_y = term_y + 1;
             let tabbar_h = TERMINAL_TAB_BAR_HEIGHT;
-
             if my >= tabbar_y && my < tabbar_y + tabbar_h {
                 let new_btn_w = "NEW".len() * char_w + 20;
                 let strip_min_x = layout.content_left + new_btn_w;
@@ -83,7 +79,6 @@ impl InputHandler {
                 }
                 return false;
             }
-
             let shell_y = tabbar_y + TERMINAL_TAB_BAR_HEIGHT;
             if my >= shell_y {
                 let vis_lines = terminal.vis_rows(line_h);
@@ -99,7 +94,6 @@ impl InputHandler {
                 return false;
             }
         }
-
         if my < TAB_BAR_HEIGHT {
             let available_w = screen_w.saturating_sub(layout.content_left);
             let scroll_delta = if cols != 0 { -cols } else { -lines };
@@ -115,7 +109,6 @@ impl InputHandler {
             }
             return false;
         }
-
         let (find_y, qo_y) = compute_bottom_bars_y(tabs, layout);
         if tabs.quick_open.is_open && mx >= layout.content_left {
             let max_visible_items = 8;
@@ -134,7 +127,6 @@ impl InputHandler {
                 }
             }
         }
-
         if tabs.find.is_open {
             let bar_h = if tabs.find.is_replace { 66 } else { 36 };
             let bar_y = find_y;
@@ -153,7 +145,6 @@ impl InputHandler {
                 } else {
                     10
                 };
-
                 let query_hovered =
                     my >= bar_y + 6 && my < bar_y + 30 && mx_i >= cur_x && mx_i < cur_x + 240;
                 if tabs.find.focused && tabs.find.active_field == FindField::Find && query_hovered {
@@ -167,7 +158,6 @@ impl InputHandler {
                     }
                     return false;
                 }
-
                 let rep_hovered = tabs.find.is_replace
                     && my >= bar_y + 36
                     && my < bar_y + 60
@@ -185,7 +175,6 @@ impl InputHandler {
                     }
                     return false;
                 }
-
                 let close_w = "Close".len() * char_w + 16;
                 let fixed_w = 6 + toggle_w + 6 + close_w + 6;
                 let available_w = screen_w.saturating_sub(layout.content_left + fixed_w);
@@ -202,10 +191,14 @@ impl InputHandler {
                 return false;
             }
         }
-
         if let Some(active_tab) = tabs.active_tab_mut() {
+            let total = if active_tab.is_diff {
+                active_tab.diff.as_ref().map(|d| d.lines.len()).unwrap_or(0)
+            } else {
+                active_tab.buffer.text().len_lines()
+            };
             let active_buf = &mut active_tab.buffer;
-            let max_l = active_buf.text().len_lines().saturating_sub(1);
+            let max_l = total.saturating_sub(1);
             let max_c = active_buf.max_line_len.saturating_sub(layout.visible_cols);
             let next_l = (active_buf.scroll_line as i32 - lines).clamp(0, max_l as i32) as usize;
             let next_c = (active_buf.scroll_col as i32 - cols).clamp(0, max_c as i32) as usize;
@@ -215,7 +208,6 @@ impl InputHandler {
                 return true;
             }
         }
-
         false
     }
 }

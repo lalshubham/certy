@@ -57,6 +57,10 @@ impl ApplicationHandler<AppEvent> for App {
         if self.terminal.needs_fs_refresh {
             self.terminal.needs_fs_refresh = false;
             self.sync_filesystem();
+            if let Some(root) = self.sidebar.root_folder.clone() {
+                self.sidebar.refresh_git();
+                self.tabs.refresh_active_git_decorations(Some(&root));
+            }
             if let Some(w) = &self.window {
                 w.request_redraw();
             }
@@ -88,6 +92,8 @@ impl ApplicationHandler<AppEvent> for App {
                 if let Some(tab) = self.tabs.active_tab_mut() {
                     tab.buffer.is_modified = true;
                 }
+                self.tabs
+                    .refresh_active_git_decorations(self.sidebar.root_folder.as_deref());
                 self.sidebar.menu_expanded = false;
                 self.sidebar.clamp_scroll(screen_h);
                 save_session(&self.sidebar, &self.tabs);
@@ -104,6 +110,8 @@ impl ApplicationHandler<AppEvent> for App {
             }
             AppEvent::OpenFile(path) => {
                 self.tabs.open_file(path);
+                self.tabs
+                    .refresh_active_git_decorations(self.sidebar.root_folder.as_deref());
                 self.sidebar.menu_expanded = false;
                 self.sidebar.clamp_scroll(screen_h);
                 save_session(&self.sidebar, &self.tabs);
@@ -121,6 +129,8 @@ impl ApplicationHandler<AppEvent> for App {
             AppEvent::OpenFolder(path) => {
                 self.terminal.reset(path.clone());
                 self.sidebar.open_folder(path);
+                self.tabs
+                    .refresh_all_git_decorations(self.sidebar.root_folder.as_deref());
                 self.sidebar.menu_expanded = false;
                 self.sidebar.clamp_scroll(screen_h);
                 save_session(&self.sidebar, &self.tabs);
@@ -184,7 +194,13 @@ impl ApplicationHandler<AppEvent> for App {
         let total_lines = self
             .tabs
             .active_tab()
-            .map(|t| t.buffer.text().len_lines())
+            .map(|t| {
+                if t.is_diff {
+                    t.diff.as_ref().map(|d| d.lines.len()).unwrap_or(0)
+                } else {
+                    t.buffer.text().len_lines()
+                }
+            })
             .unwrap_or(0);
         let sidebar_w = if self.sidebar.visible {
             self.sidebar.width
@@ -199,7 +215,6 @@ impl ApplicationHandler<AppEvent> for App {
             total_lines,
             sidebar_w,
         );
-
         match event {
             WindowEvent::RedrawRequested => {
                 if let Some(ref mut renderer) = self.renderer {
@@ -278,7 +293,11 @@ impl ApplicationHandler<AppEvent> for App {
                         screen_h.saturating_sub(cur_term_h + cur_find_h + cur_qo_h),
                         cw,
                         lh,
-                        tab.buffer.text().len_lines(),
+                        if tab.is_diff {
+                            tab.diff.as_ref().map(|d| d.lines.len()).unwrap_or(0)
+                        } else {
+                            tab.buffer.text().len_lines()
+                        },
                         effective_sidebar_w,
                     );
                     tab.buffer.fit_view(l.visible_lines, l.visible_cols);
@@ -417,7 +436,7 @@ impl ApplicationHandler<AppEvent> for App {
                     }
                     ActionEvent::SaveAllFiles => {
                         for tab in &mut self.tabs.tabs {
-                            if tab.buffer.is_modified {
+                            if tab.buffer.is_modified && !tab.is_diff {
                                 let _ = tab.buffer.save();
                             }
                         }
@@ -431,6 +450,8 @@ impl ApplicationHandler<AppEvent> for App {
                         if self.sidebar.root_folder.is_some() {
                             self.sidebar.refresh_folder();
                         }
+                        self.tabs
+                            .refresh_all_git_decorations(self.sidebar.root_folder.as_deref());
                         self.tabs.close_all_tabs();
                         save_session(&self.sidebar, &self.tabs);
                         let effective_sidebar_w = if self.sidebar.visible {
@@ -502,12 +523,15 @@ impl ApplicationHandler<AppEvent> for App {
                     ActionEvent::Menu(item) => match item {
                         MenuItem::Save => {
                             if let Some(tab) = self.tabs.active_tab_mut() {
-                                let _ = tab.buffer.save();
-                                if let Some(p) = &tab.buffer.file_path {
-                                    if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
-                                        tab.title = name.to_string();
+                                if !tab.is_diff {
+                                    let _ = tab.buffer.save();
+                                    if let Some(p) = &tab.buffer.file_path {
+                                        if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                                            tab.title = name.to_string();
+                                        }
                                     }
                                 }
+                                tab.update_git_status(self.sidebar.root_folder.as_deref());
                                 if self.sidebar.root_folder.is_some() {
                                     self.sidebar.refresh_folder();
                                 }
@@ -579,6 +603,7 @@ impl ApplicationHandler<AppEvent> for App {
                                 self.tabs.close_folder_tabs(&root);
                             }
                             self.sidebar.close_folder();
+                            self.tabs.refresh_all_git_decorations(None);
                             let cwd =
                                 std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
                             self.terminal.reset(cwd);
@@ -653,6 +678,8 @@ impl ApplicationHandler<AppEvent> for App {
                     }
                     ActionEvent::OpenFile(path) => {
                         self.tabs.open_file(path);
+                        self.tabs
+                            .refresh_active_git_decorations(self.sidebar.root_folder.as_deref());
                         save_session(&self.sidebar, &self.tabs);
                         let effective_sidebar_w = if self.sidebar.visible {
                             self.sidebar.width
@@ -669,14 +696,38 @@ impl ApplicationHandler<AppEvent> for App {
                         );
                         window.request_redraw();
                     }
+                    ActionEvent::OpenDiff(path) => {
+                        if let Some(ref root) = self.sidebar.root_folder.clone() {
+                            self.tabs.open_diff(path, root);
+                            save_session(&self.sidebar, &self.tabs);
+                            let effective_sidebar_w = if self.sidebar.visible {
+                                self.sidebar.width
+                            } else {
+                                0
+                            };
+                            let avail_w = screen_w.saturating_sub(effective_sidebar_w);
+                            self.tabs.ensure_active_tab_visible(cw, avail_w);
+                            update_window_title(
+                                &window,
+                                &self.tabs,
+                                &self.sidebar,
+                                &mut self.current_title,
+                            );
+                            window.request_redraw();
+                        }
+                    }
                     ActionEvent::SaveTab(idx) => {
                         if let Some(tab) = self.tabs.tabs.get_mut(idx) {
-                            let _ = tab.buffer.save();
+                            if !tab.is_diff {
+                                let _ = tab.buffer.save();
+                            }
                         }
                         if self.sidebar.root_folder.is_some() {
                             self.sidebar.refresh_folder();
                         }
                         self.tabs.close_tab(idx);
+                        self.tabs
+                            .refresh_active_git_decorations(self.sidebar.root_folder.as_deref());
                         save_session(&self.sidebar, &self.tabs);
                         let effective_sidebar_w = if self.sidebar.visible {
                             self.sidebar.width
@@ -715,6 +766,8 @@ impl ApplicationHandler<AppEvent> for App {
                             }
                         }
                         self.tabs.close_tab(idx);
+                        self.tabs
+                            .refresh_active_git_decorations(self.sidebar.root_folder.as_deref());
                         save_session(&self.sidebar, &self.tabs);
                         let effective_sidebar_w = if self.sidebar.visible {
                             self.sidebar.width
@@ -746,7 +799,7 @@ impl ApplicationHandler<AppEvent> for App {
                     }
                     ActionEvent::SaveAllAndExit => {
                         for tab in &mut self.tabs.tabs {
-                            if tab.buffer.is_modified {
+                            if tab.buffer.is_modified && !tab.is_diff {
                                 let _ = tab.buffer.save();
                             }
                         }
@@ -793,6 +846,8 @@ impl ApplicationHandler<AppEvent> for App {
                         window.request_redraw();
                     }
                     ActionEvent::Redraw => {
+                        self.tabs
+                            .refresh_active_git_decorations(self.sidebar.root_folder.as_deref());
                         save_session(&self.sidebar, &self.tabs);
                         update_window_title(
                             &window,
@@ -804,7 +859,6 @@ impl ApplicationHandler<AppEvent> for App {
                     }
                     ActionEvent::None => {}
                 }
-
                 let desired_icon = self.input.desired_cursor_icon(
                     &layout,
                     &self.tabs,
@@ -821,14 +875,20 @@ impl ApplicationHandler<AppEvent> for App {
                 if !is_focused {
                     self.input.drag = input::DragState::None;
                     self.input.is_left_down = false;
-                } else if self.sync_filesystem() {
-                    if let Some(w) = &self.window {
-                        w.request_redraw();
+                } else {
+                    let mut redraw = self.sync_filesystem();
+                    if let Some(root) = self.sidebar.root_folder.clone() {
+                        self.sidebar.refresh_git();
+                        self.tabs.refresh_active_git_decorations(Some(&root));
+                        let screen_h = self.renderer.as_ref().map(|r| r.height).unwrap_or(768);
+                        self.sidebar.clamp_scroll(screen_h);
+                        redraw = true;
                     }
-                } else if self.sidebar.root_folder.is_some() {
-                    let screen_h = self.renderer.as_ref().map(|r| r.height).unwrap_or(768);
-                    self.sidebar.clamp_scroll(screen_h);
-                    window.request_redraw();
+                    if redraw {
+                        if let Some(w) = &self.window {
+                            w.request_redraw();
+                        }
+                    }
                 }
             }
             WindowEvent::CursorLeft { .. } => {}
@@ -861,7 +921,6 @@ impl ApplicationHandler<AppEvent> for App {
                     );
                     return;
                 }
-
                 if self.input.handle_key(
                     &event,
                     &mut self.tabs,
@@ -871,6 +930,15 @@ impl ApplicationHandler<AppEvent> for App {
                     cw,
                     &mut self.clipboard,
                 ) {
+                    let is_ctrl = self.input.modifiers.control_key() || self.input.ctrl_down;
+                    let is_s = matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyS));
+                    if is_ctrl && is_s {
+                        if self.sidebar.root_folder.is_some() {
+                            self.sidebar.refresh_folder();
+                        }
+                        self.tabs
+                            .refresh_active_git_decorations(self.sidebar.root_folder.as_deref());
+                    }
                     save_session(&self.sidebar, &self.tabs);
                     update_window_title(
                         &window,
