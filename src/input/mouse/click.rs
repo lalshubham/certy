@@ -385,16 +385,15 @@ impl InputHandler {
                 }
                 if cy >= menu_total_h + TAB_BAR_HEIGHT {
                     let mut sec_y = menu_total_h + TAB_BAR_HEIGHT;
-                    let has_github = has_folder && sidebar.git_snapshot.has_github_dir;
-                    if has_github {
-                        let gh_total_h = sidebar.github_total_height();
+                    if has_folder {
+                        let git_total_h = sidebar.git_total_height();
                         if cy >= sec_y && cy < sec_y + TAB_BAR_HEIGHT {
-                            sidebar.toggle_github();
+                            sidebar.toggle_git();
                             sidebar.clamp_scroll(screen_h);
                             return ActionEvent::Redraw;
-                        } else if sidebar.github_expanded
+                        } else if sidebar.git_expanded
                             && cy >= sec_y + TAB_BAR_HEIGHT
-                            && cy < sec_y + gh_total_h
+                            && cy < sec_y + git_total_h
                         {
                             let rel_row = cy - (sec_y + TAB_BAR_HEIGHT);
                             let row_idx = rel_row / SIDEBAR_ROW_HEIGHT;
@@ -405,7 +404,7 @@ impl InputHandler {
                             }
                             return ActionEvent::Redraw;
                         }
-                        sec_y += gh_total_h;
+                        sec_y += git_total_h;
                     }
 
                     if has_folder && cy >= sec_y {

@@ -1,6 +1,7 @@
 use crate::config::*;
 use crate::editor::tabs::Tab;
 use crate::git::diff::DiffLineKind;
+use crate::syntax::{self, Language};
 use crate::ui::canvas::draw_solid_rect;
 use crate::ui::font::FontManager;
 use crate::ui::layout::{calc_thumb, ViewportLayout};
@@ -53,6 +54,31 @@ pub fn render_diff_view(
         gutter_h,
         COLOR_GUTTER_SEPARATOR,
     );
+
+    let language = Language::from_path(tab.buffer.file_path.as_deref());
+
+    let mut in_comment_state = false;
+    if !matches!(
+        language,
+        Language::PlainText | Language::Bash | Language::Json
+    ) {
+        let limit = tab.buffer.scroll_line.min(total_lines);
+        let mut pre_chars = Vec::with_capacity(128);
+        for i in 0..limit {
+            pre_chars.clear();
+            pre_chars.extend(
+                diff.lines[i]
+                    .text
+                    .chars()
+                    .take_while(|&c| c != '\n' && c != '\r'),
+            );
+            let (_, next_state) =
+                syntax::highlight_line(&pre_chars, language, in_comment_state, COLOR_TEXT_DEFAULT);
+            in_comment_state = next_state;
+        }
+    }
+
+    let mut line_chars = Vec::with_capacity(128);
 
     for row in 0..=layout.visible_lines {
         let line_idx = tab.buffer.scroll_line + row;
@@ -155,8 +181,19 @@ pub fn render_diff_view(
             frame, sign_char, nx as i32, y as i32, screen_w, screen_h, sign_color,
         );
 
+        line_chars.clear();
+        line_chars.extend(
+            diff_line
+                .text
+                .chars()
+                .take_while(|&c| c != '\n' && c != '\r'),
+        );
+        let (syntax_colors, next_comment_state) =
+            syntax::highlight_line(&line_chars, language, in_comment_state, text_color);
+        in_comment_state = next_comment_state;
+
         let mut current_vcol = 0;
-        for ch in diff_line.text.chars() {
+        for (char_idx_in_line, &ch) in line_chars.iter().enumerate() {
             let char_w_cols = if ch == '\t' {
                 TAB_WIDTH - (current_vcol % TAB_WIDTH)
             } else {
@@ -174,8 +211,14 @@ pub fn render_diff_view(
             if text_x >= layout.content_right as i32 {
                 break;
             }
+
+            let char_color = syntax_colors
+                .get(char_idx_in_line)
+                .copied()
+                .unwrap_or(text_color);
+
             if ch != '\t' && !ch.is_control() && !ch.is_whitespace() {
-                fonts.draw_char(frame, ch, text_x, y as i32, screen_w, screen_h, text_color);
+                fonts.draw_char(frame, ch, text_x, y as i32, screen_w, screen_h, char_color);
             }
         }
     }

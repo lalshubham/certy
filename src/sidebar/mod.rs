@@ -32,14 +32,14 @@ pub struct Sidebar {
     pub menu_expanded: bool,
     pub root_folder: Option<PathBuf>,
     pub root_expanded: bool,
-    pub github_expanded: bool,
+    pub git_expanded: bool,
     pub nodes: Vec<FileTreeNode>,
     pub git_snapshot: GitStatusSnapshot,
     pub hovered_menu_header: bool,
     pub hovered_menu_item: Option<MenuItem>,
     pub hovered_terminal_header: bool,
-    pub hovered_github_header: bool,
-    pub hovered_github_row: Option<usize>,
+    pub hovered_git_header: bool,
+    pub hovered_git_row: Option<usize>,
     pub hovered_root_header: bool,
     pub hovered_tree_row: Option<usize>,
     expanded_dirs: HashSet<PathBuf>,
@@ -60,14 +60,14 @@ impl Sidebar {
             menu_expanded: false,
             root_folder: None,
             root_expanded: true,
-            github_expanded: true,
+            git_expanded: false,
             nodes: Vec::new(),
             git_snapshot: GitStatusSnapshot::default(),
             hovered_menu_header: false,
             hovered_menu_item: None,
             hovered_terminal_header: false,
-            hovered_github_header: false,
-            hovered_github_row: None,
+            hovered_git_header: false,
+            hovered_git_row: None,
             hovered_root_header: false,
             hovered_tree_row: None,
             expanded_dirs: HashSet::new(),
@@ -95,12 +95,12 @@ impl Sidebar {
             }
     }
 
-    pub fn github_total_height(&self) -> usize {
-        if !self.git_snapshot.has_github_dir || self.root_folder.is_none() {
+    pub fn git_total_height(&self) -> usize {
+        if self.root_folder.is_none() {
             return 0;
         }
         let mut h = TAB_BAR_HEIGHT;
-        if self.github_expanded {
+        if self.git_expanded {
             let row_count = if self.git_snapshot.files.is_empty() {
                 1
             } else {
@@ -113,10 +113,8 @@ impl Sidebar {
 
     pub fn total_content_height(&self) -> usize {
         let mut h = self.menu_total_height() + TAB_BAR_HEIGHT;
-        if self.root_folder.is_some() && self.git_snapshot.has_github_dir {
-            h += self.github_total_height();
-        }
         if self.root_folder.is_some() {
+            h += self.git_total_height();
             h += TAB_BAR_HEIGHT;
             if self.root_expanded {
                 h += self.nodes.len() * SIDEBAR_ROW_HEIGHT;
@@ -156,8 +154,8 @@ impl Sidebar {
         self.rebuild_tree();
     }
 
-    pub fn toggle_github(&mut self) {
-        self.github_expanded = !self.github_expanded;
+    pub fn toggle_git(&mut self) {
+        self.git_expanded = !self.git_expanded;
     }
 
     pub fn toggle_dir(&mut self, idx: usize) {
@@ -187,7 +185,7 @@ impl Sidebar {
         self.root_folder = Some(canon_path);
         self.expanded_dirs.clear();
         self.root_expanded = true;
-        self.github_expanded = true;
+        self.git_expanded = false;
         self.refresh_git();
         self.rebuild_tree();
     }

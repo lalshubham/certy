@@ -4,12 +4,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub fn scan_git_status(workspace_root: &Path) -> GitStatusSnapshot {
-    let has_github_dir = workspace_root.join(".github").is_dir();
     let repo = match Repository::discover(workspace_root) {
         Ok(r) => r,
         Err(_) => {
             return GitStatusSnapshot {
-                has_github_dir,
                 files: Vec::new(),
                 dir_statuses: HashMap::new(),
             };
@@ -20,7 +18,6 @@ pub fn scan_git_status(workspace_root: &Path) -> GitStatusSnapshot {
         Some(w) => w,
         None => {
             return GitStatusSnapshot {
-                has_github_dir,
                 files: Vec::new(),
                 dir_statuses: HashMap::new(),
             };
@@ -38,7 +35,6 @@ pub fn scan_git_status(workspace_root: &Path) -> GitStatusSnapshot {
         Ok(s) => s,
         Err(_) => {
             return GitStatusSnapshot {
-                has_github_dir,
                 files: Vec::new(),
                 dir_statuses: HashMap::new(),
             };
@@ -116,7 +112,6 @@ pub fn scan_git_status(workspace_root: &Path) -> GitStatusSnapshot {
     });
 
     GitStatusSnapshot {
-        has_github_dir,
         files,
         dir_statuses,
     }

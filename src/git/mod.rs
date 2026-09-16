@@ -53,7 +53,6 @@ pub struct GutterDecorations {
 
 #[derive(Default, Clone, Debug)]
 pub struct GitStatusSnapshot {
-    pub has_github_dir: bool,
     pub files: Vec<GitFileItem>,
     pub dir_statuses: HashMap<PathBuf, DirGitStatus>,
 }

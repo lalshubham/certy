@@ -206,8 +206,23 @@ pub fn render_sidebar(
 
     let mut cur_section_y = term_screen_y + TAB_BAR_HEIGHT as i32;
 
-    if sidebar.root_folder.is_some() && sidebar.git_snapshot.has_github_dir {
-        let gh_header_bg = if sidebar.hovered_github_header {
+    if sidebar.root_folder.is_some() {
+        let total_git_h = sidebar.git_total_height();
+        let git_screen_y = cur_section_y;
+
+        // Container background matching [-] MENU
+        draw_solid_rect_i32(
+            frame,
+            screen_w,
+            screen_h,
+            0,
+            git_screen_y,
+            sidebar.width - 1,
+            total_git_h,
+            COLOR_BACKGROUND,
+        );
+
+        let git_header_bg = if sidebar.hovered_git_header {
             COLOR_SIDEBAR_ROW_HOVER
         } else {
             COLOR_BACKGROUND
@@ -217,49 +232,40 @@ pub fn render_sidebar(
             screen_w,
             screen_h,
             0,
-            cur_section_y,
+            git_screen_y,
             sidebar.width - 1,
             TAB_BAR_HEIGHT,
-            gh_header_bg,
+            git_header_bg,
         );
         let count = sidebar.git_snapshot.files.len();
-        let gh_prefix = if sidebar.github_expanded {
-            "[-] "
+        let git_prefix = if sidebar.git_expanded { "[-] " } else { "[+] " };
+        let git_label = if count > 0 {
+            format!("{git_prefix}GIT ({count})")
         } else {
-            "[+] "
-        };
-        let gh_label = if count > 0 {
-            format!("{gh_prefix}GITHUB ({count})")
-        } else {
-            format!("{gh_prefix}GITHUB")
+            format!("{git_prefix}GIT")
         };
         draw_string_ellipsis(
             fonts,
             frame,
-            &gh_label,
+            &git_label,
             12,
-            cur_section_y + header_offset_y as i32,
+            git_screen_y + header_offset_y as i32,
             max_text_x,
             screen_w,
             screen_h,
             COLOR_LINE_NUMBER_ACTIVE,
         );
-        draw_solid_rect_i32(
-            frame,
-            screen_w,
-            screen_h,
-            0,
-            cur_section_y + TAB_BAR_HEIGHT as i32 - 1,
-            sidebar.width,
-            1,
-            COLOR_SIDEBAR_BORDER,
-        );
 
-        cur_section_y += TAB_BAR_HEIGHT as i32;
+        if sidebar.git_expanded {
+            let is_diff_active = tabs.active_tab().map(|t| t.is_diff).unwrap_or(false);
+            let active_diff_path = if is_diff_active {
+                tabs.active_tab().and_then(|t| t.buffer.file_path.as_ref())
+            } else {
+                None
+            };
 
-        if sidebar.github_expanded {
             if sidebar.git_snapshot.files.is_empty() {
-                let row_y = cur_section_y;
+                let row_y = git_screen_y + TAB_BAR_HEIGHT as i32;
                 if row_y + (SIDEBAR_ROW_HEIGHT as i32) > 0 && row_y < screen_h as i32 {
                     draw_string(
                         fonts,
@@ -272,29 +278,34 @@ pub fn render_sidebar(
                         COLOR_LINE_NUMBER_MUTED,
                     );
                 }
-                cur_section_y += SIDEBAR_ROW_HEIGHT as i32;
             } else {
                 for (idx, file_item) in sidebar.git_snapshot.files.iter().enumerate() {
-                    let row_y = cur_section_y + (idx * SIDEBAR_ROW_HEIGHT) as i32;
+                    let row_y = git_screen_y + (TAB_BAR_HEIGHT + idx * SIDEBAR_ROW_HEIGHT) as i32;
                     if row_y + (SIDEBAR_ROW_HEIGHT as i32) <= 0 {
                         continue;
                     }
                     if row_y >= screen_h as i32 {
                         break;
                     }
-                    let is_hovered = sidebar.hovered_github_row == Some(idx);
-                    if is_hovered {
-                        draw_solid_rect_i32(
-                            frame,
-                            screen_w,
-                            screen_h,
-                            0,
-                            row_y,
-                            sidebar.width - 1,
-                            SIDEBAR_ROW_HEIGHT,
-                            COLOR_SIDEBAR_ROW_HOVER,
-                        );
-                    }
+                    let is_active = active_diff_path == Some(&file_item.path);
+                    let is_hovered = sidebar.hovered_git_row == Some(idx);
+                    let bg = if is_active {
+                        COLOR_SIDEBAR_ROW_ACTIVE
+                    } else if is_hovered {
+                        COLOR_SIDEBAR_ROW_HOVER
+                    } else {
+                        COLOR_BACKGROUND
+                    };
+                    draw_solid_rect_i32(
+                        frame,
+                        screen_w,
+                        screen_h,
+                        0,
+                        row_y,
+                        sidebar.width - 1,
+                        SIDEBAR_ROW_HEIGHT,
+                        bg,
+                    );
                     let status_col = git_status_color(file_item.status);
                     let badge = file_item.status.badge_char();
                     let badge_w = badge.len() * cw;
@@ -324,9 +335,22 @@ pub fn render_sidebar(
                         status_col,
                     );
                 }
-                cur_section_y += (sidebar.git_snapshot.files.len() * SIDEBAR_ROW_HEIGHT) as i32;
             }
         }
+
+        // Bottom border matching [-] MENU
+        draw_solid_rect_i32(
+            frame,
+            screen_w,
+            screen_h,
+            0,
+            git_screen_y + total_git_h as i32 - 1,
+            sidebar.width,
+            1,
+            COLOR_SIDEBAR_BORDER,
+        );
+
+        cur_section_y += total_git_h as i32;
     }
 
     if sidebar.root_folder.is_some() {
@@ -372,7 +396,14 @@ pub fn render_sidebar(
         }
         if sidebar.root_expanded {
             let tree_start_abs = cur_section_y + TAB_BAR_HEIGHT as i32;
-            let active_path = tabs.active_tab().and_then(|t| t.buffer.file_path.as_ref());
+            let active_normal_path = tabs.active_tab().and_then(|t| {
+                if !t.is_diff {
+                    t.buffer.file_path.as_ref()
+                } else {
+                    None
+                }
+            });
+
             for (idx, node) in sidebar.nodes.iter().enumerate() {
                 let node_screen_y = tree_start_abs + (idx * SIDEBAR_ROW_HEIGHT) as i32;
                 if node_screen_y + (SIDEBAR_ROW_HEIGHT as i32) <= 0 {
@@ -381,7 +412,7 @@ pub fn render_sidebar(
                 if node_screen_y >= screen_h as i32 {
                     break;
                 }
-                let is_active = active_path == Some(&node.path);
+                let is_active = active_normal_path == Some(&node.path);
                 let is_hovered = sidebar.hovered_tree_row == Some(idx);
                 let bg = if is_active {
                     COLOR_SIDEBAR_ROW_ACTIVE
@@ -433,45 +464,17 @@ pub fn render_sidebar(
                     COLOR_SIDEBAR_TEXT
                 };
 
-                let has_badge =
-                    !node.is_dir && sidebar.git_snapshot.status_for_file(&node.path).is_some();
-                let badge_limit_x = if has_badge {
-                    max_text_x.saturating_sub(cw + 8)
-                } else {
-                    max_text_x
-                };
-
                 draw_string_ellipsis(
                     fonts,
                     frame,
                     &display_str,
                     indent as i32,
                     node_screen_y + row_offset_y as i32,
-                    badge_limit_x,
+                    max_text_x,
                     screen_w,
                     screen_h,
                     text_color,
                 );
-
-                if let Some(status) = (!node.is_dir)
-                    .then(|| sidebar.git_snapshot.status_for_file(&node.path))
-                    .flatten()
-                {
-                    let badge = status.badge_char();
-                    let badge_x = max_text_x.saturating_sub(cw + 4);
-                    draw_string_clipped(
-                        fonts,
-                        frame,
-                        badge,
-                        badge_x as i32,
-                        node_screen_y + row_offset_y as i32,
-                        0,
-                        max_text_x,
-                        screen_w,
-                        screen_h,
-                        text_color,
-                    );
-                }
             }
         }
     }
