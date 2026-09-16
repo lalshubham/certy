@@ -71,7 +71,7 @@ impl InputHandler {
             && matches!(event.logical_key, Key::Named(NamedKey::Escape))
         {
             tabs.quick_open.close();
-            if tabs.find.is_open {
+            if tabs.is_find_visible() {
                 tabs.find.focused = true;
             } else {
                 tabs.focused = true;
@@ -79,7 +79,7 @@ impl InputHandler {
             return true;
         }
 
-        if tabs.find.is_open
+        if tabs.is_find_visible()
             && event.state == ElementState::Pressed
             && matches!(event.logical_key, Key::Named(NamedKey::Escape))
         {
@@ -121,10 +121,11 @@ impl InputHandler {
                 Key::Character(c) => c.eq_ignore_ascii_case("p") || c == "\u{10}",
                 _ => false,
             };
+
         if is_ctrl && !is_shift && !is_alt && is_p {
             if tabs.quick_open.is_open {
                 tabs.quick_open.close();
-                if tabs.find.is_open {
+                if tabs.is_find_visible() {
                     tabs.find.focused = true;
                 } else {
                     tabs.focused = true;
@@ -133,7 +134,7 @@ impl InputHandler {
                 tabs.quick_open.open(sidebar.root_folder.as_deref());
                 tabs.focused = false;
                 terminal.focused = false;
-                if tabs.find.is_open {
+                if tabs.is_find_visible() {
                     tabs.quick_open_above_find = true;
                     tabs.find.focused = false;
                 }
@@ -171,6 +172,9 @@ impl InputHandler {
             Some(i) => i,
             None => return false,
         };
+
+        let is_find_vis = tabs.is_find_visible();
+
         let (tab, find) = match tabs.tabs.get_mut(active_idx) {
             Some(t) => (t, &mut tabs.find),
             None => return false,
@@ -187,6 +191,7 @@ impl InputHandler {
                 Key::Character(c) => c.eq_ignore_ascii_case("f") || c == "\u{6}",
                 _ => false,
             };
+
         let is_s = matches!(event.physical_key, PhysicalKey::Code(KeyCode::KeyS))
             || match &event.logical_key {
                 Key::Character(c) => c.eq_ignore_ascii_case("s") || c == "\u{13}",
@@ -207,7 +212,7 @@ impl InputHandler {
                 if is_ctrl && is_f {
                     tabs.focused = false;
                 }
-                if tabs.quick_open.is_open && find.is_open {
+                if tabs.quick_open.is_open && is_find_vis {
                     tabs.quick_open_above_find = false;
                     tabs.quick_open.focused = false;
                 }
@@ -215,7 +220,7 @@ impl InputHandler {
             }
         }
 
-        if find.is_open && find.focused {
+        if is_find_vis && find.focused {
             return handle_find_focused_key(
                 event,
                 find,

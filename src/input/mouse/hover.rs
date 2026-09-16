@@ -4,7 +4,7 @@ use crate::terminal::Terminal;
 use crate::ui::layout::ViewportLayout;
 
 pub fn compute_bottom_bars_y(tabs: &TabManager, layout: &ViewportLayout) -> (usize, usize) {
-    let find_h = if tabs.find.is_open {
+    let find_h = if tabs.is_find_visible() {
         if tabs.find.is_replace {
             66
         } else {
@@ -15,7 +15,7 @@ pub fn compute_bottom_bars_y(tabs: &TabManager, layout: &ViewportLayout) -> (usi
     };
     let qo_h = if tabs.quick_open.is_open { 36 } else { 0 };
     let base_y = layout.content_bottom + SCROLLBAR_THICKNESS;
-    if tabs.find.is_open && tabs.quick_open.is_open {
+    if tabs.is_find_visible() && tabs.quick_open.is_open {
         if tabs.quick_open_above_find {
             (base_y + qo_h, base_y)
         } else {
@@ -85,7 +85,7 @@ pub fn update_find_hover(
     bar_y: usize,
 ) {
     tabs.find.hovered_btn = None;
-    if !tabs.find.is_open {
+    if !tabs.is_find_visible() {
         return;
     }
 

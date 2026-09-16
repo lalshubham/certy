@@ -181,7 +181,7 @@ impl ApplicationHandler<AppEvent> for App {
         } else {
             0
         };
-        let find_h = if self.tabs.find.is_open {
+        let find_h = if self.tabs.is_find_visible() {
             if self.tabs.find.is_replace {
                 66
             } else {
@@ -266,7 +266,7 @@ impl ApplicationHandler<AppEvent> for App {
                 }
                 let avail_w = screen_w.saturating_sub(effective_sidebar_w);
                 self.tabs.clamp_scroll(cw, avail_w);
-                let find_open = self.tabs.find.is_open;
+                let find_open = self.tabs.is_find_visible();
                 let find_rep = self.tabs.find.is_replace;
                 let qo_open = self.tabs.quick_open.is_open;
                 let close_w = "Close".len() * cw + 16;

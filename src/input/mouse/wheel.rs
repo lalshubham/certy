@@ -127,7 +127,7 @@ impl InputHandler {
                 }
             }
         }
-        if tabs.find.is_open {
+        if tabs.is_find_visible() {
             let bar_h = if tabs.find.is_replace { 66 } else { 36 };
             let bar_y = find_y;
             if my >= bar_y && my < bar_y + bar_h && mx >= layout.content_left {

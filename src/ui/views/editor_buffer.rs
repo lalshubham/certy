@@ -291,7 +291,7 @@ pub fn render_editor_buffer(
         );
     }
 
-    let find_h = if tabs.find.is_open {
+    let find_h = if tabs.is_find_visible() {
         if tabs.find.is_replace {
             66
         } else {
@@ -302,7 +302,7 @@ pub fn render_editor_buffer(
     };
     let qo_h = if tabs.quick_open.is_open { 36 } else { 0 };
     let base_y = layout.content_bottom + SCROLLBAR_THICKNESS;
-    let (find_y, qo_y) = if tabs.find.is_open && tabs.quick_open.is_open {
+    let (find_y, qo_y) = if tabs.is_find_visible() && tabs.quick_open.is_open {
         if tabs.quick_open_above_find {
             (base_y + qo_h, base_y)
         } else {
@@ -311,8 +311,7 @@ pub fn render_editor_buffer(
     } else {
         (base_y, base_y)
     };
-
-    if tabs.find.is_open {
+    if tabs.is_find_visible() {
         render_find_bar(frame, fonts, tabs, layout, screen_w, screen_h, find_y);
     }
     if tabs.quick_open.is_open {

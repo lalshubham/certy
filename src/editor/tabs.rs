@@ -104,6 +104,11 @@ impl TabManager {
         self.tabs.iter().any(|t| t.buffer.is_modified && !t.is_diff)
     }
 
+    #[inline]
+    pub fn is_find_visible(&self) -> bool {
+        self.find.is_open && self.active_tab().map(|t| !t.is_diff).unwrap_or(false)
+    }
+
     pub fn total_tabs_width(&self, char_w: usize) -> usize {
         self.tabs.iter().map(|t| t.width(char_w)).sum()
     }
@@ -278,6 +283,7 @@ impl TabManager {
             self.active_idx = None;
             self.scroll_x = 0;
             self.focused = false;
+            self.find.focused = false;
         } else if let Some(cur) = self.active_idx {
             if cur >= self.tabs.len() || cur == idx {
                 self.active_idx = Some(self.tabs.len().saturating_sub(1));
@@ -303,6 +309,7 @@ impl TabManager {
             self.active_idx = None;
             self.scroll_x = 0;
             self.focused = false;
+            self.find.focused = false;
         } else if let Some(ref path) = prev_active_path {
             if let Some(pos) = self
                 .tabs
@@ -339,6 +346,7 @@ impl TabManager {
             self.active_idx = None;
             self.scroll_x = 0;
             self.focused = false;
+            self.find.focused = false;
         } else if let Some(ref path) = prev_active_path {
             if let Some(pos) = self
                 .tabs
@@ -367,6 +375,7 @@ impl TabManager {
             self.active_idx = None;
             self.scroll_x = 0;
             self.focused = false;
+            self.find.focused = false;
         } else if let Some(cur) = self.active_idx {
             if cur >= self.tabs.len() {
                 self.active_idx = Some(self.tabs.len().saturating_sub(1));
@@ -389,6 +398,7 @@ impl TabManager {
         self.hovered_tab = None;
         self.hovered_close = None;
         self.focused = false;
+        self.find.focused = false;
         self.update_find_matches();
     }
 }

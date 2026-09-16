@@ -100,7 +100,7 @@ impl InputHandler {
         let my = self.mouse_y.max(0.0) as usize;
 
         let (find_y, qo_y) = compute_bottom_bars_y(tabs, layout);
-        let find_h = if tabs.find.is_open {
+        let find_h = if tabs.is_find_visible() {
             if tabs.find.is_replace {
                 66
             } else {
@@ -109,8 +109,10 @@ impl InputHandler {
         } else {
             0
         };
-        let is_find_bar =
-            tabs.find.is_open && my >= find_y && my < find_y + find_h && mx >= layout.content_left;
+        let is_find_bar = tabs.is_find_visible()
+            && my >= find_y
+            && my < find_y + find_h
+            && mx >= layout.content_left;
         let is_quick_open_bar =
             tabs.quick_open.is_open && my >= qo_y && my < qo_y + 36 && mx >= layout.content_left;
         let max_visible_items = 8;
@@ -560,7 +562,7 @@ impl InputHandler {
             return ActionEvent::Redraw;
         }
 
-        if tabs.find.is_open {
+        if tabs.is_find_visible() {
             let bar_h = if tabs.find.is_replace { 66 } else { 36 };
             let bar_y = find_y;
             let bar_w = screen_w.saturating_sub(layout.content_left);

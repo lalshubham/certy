@@ -91,7 +91,7 @@ impl Renderer {
         let screen_w = self.width;
         let screen_h = self.height;
         let term_h = if terminal.is_open { terminal.height } else { 0 };
-        let find_h = if tabs.find.is_open {
+        let find_h = if tabs.is_find_visible() {
             if tabs.find.is_replace {
                 66
             } else {

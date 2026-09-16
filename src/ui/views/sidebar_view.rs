@@ -210,7 +210,6 @@ pub fn render_sidebar(
         let total_git_h = sidebar.git_total_height();
         let git_screen_y = cur_section_y;
 
-        // Container background matching [-] MENU
         draw_solid_rect_i32(
             frame,
             screen_w,
@@ -338,7 +337,6 @@ pub fn render_sidebar(
             }
         }
 
-        // Bottom border matching [-] MENU
         draw_solid_rect_i32(
             frame,
             screen_w,

@@ -283,6 +283,10 @@ pub fn process_drag(
             }
         }
         DragState::FindSelecting => {
+            if !tabs.is_find_visible() {
+                input.drag = DragState::None;
+                return false;
+            }
             let cw = char_w.max(1);
             let padding = 4;
             let find_input_w: usize = 240;
