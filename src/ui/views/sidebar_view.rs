@@ -1,9 +1,9 @@
-use super::canvas::{draw_solid_rect, draw_solid_rect_i32, draw_string, draw_string_ellipsis};
-use super::font::FontManager;
 use crate::config::*;
 use crate::editor::TabManager;
 use crate::sidebar::{MenuItem, Sidebar};
 use crate::terminal::Terminal;
+use crate::ui::canvas::{draw_solid_rect, draw_solid_rect_i32, draw_string, draw_string_ellipsis};
+use crate::ui::font::FontManager;
 use crate::ui::layout::calc_thumb;
 
 pub fn render_sidebar(
@@ -20,6 +20,7 @@ pub fn render_sidebar(
     }
     let lh = fonts.line_height;
     let row_offset_y = (SIDEBAR_ROW_HEIGHT.saturating_sub(lh)) / 2;
+
     draw_solid_rect(
         frame,
         screen_w,
@@ -40,6 +41,7 @@ pub fn render_sidebar(
         screen_h,
         COLOR_SIDEBAR_BORDER,
     );
+
     let total_sidebar_h = sidebar.total_content_height();
     let has_sidebar_scroll = total_sidebar_h > screen_h;
     let max_text_x = if has_sidebar_scroll {
@@ -47,8 +49,10 @@ pub fn render_sidebar(
     } else {
         sidebar.width.saturating_sub(8)
     };
+
     let total_menu_h = sidebar.menu_total_height();
     let menu_screen_y = -(sidebar.scroll_y as i32);
+
     draw_solid_rect_i32(
         frame,
         screen_w,
@@ -59,6 +63,7 @@ pub fn render_sidebar(
         total_menu_h,
         COLOR_BACKGROUND,
     );
+
     let menu_header_bg = if sidebar.hovered_menu_header {
         COLOR_SIDEBAR_ROW_HOVER
     } else {
@@ -74,6 +79,7 @@ pub fn render_sidebar(
         TAB_BAR_HEIGHT,
         menu_header_bg,
     );
+
     let menu_label = if sidebar.menu_expanded {
         "[-] MENU"
     } else {
@@ -90,11 +96,13 @@ pub fn render_sidebar(
         screen_h,
         COLOR_LINE_NUMBER_ACTIVE,
     );
+
     let can_save = tabs
         .active_tab()
         .map(|t| t.buffer.is_modified)
         .unwrap_or(false);
     let has_folder = sidebar.root_folder.is_some();
+
     if sidebar.menu_expanded {
         for (idx, (item, label)) in sidebar.menu_items().iter().enumerate() {
             let item_screen_y = menu_screen_y + (TAB_BAR_HEIGHT + idx * SIDEBAR_ROW_HEIGHT) as i32;
@@ -133,6 +141,7 @@ pub fn render_sidebar(
             );
         }
     }
+
     draw_solid_rect_i32(
         frame,
         screen_w,
@@ -143,6 +152,7 @@ pub fn render_sidebar(
         1,
         COLOR_SIDEBAR_BORDER,
     );
+
     let term_screen_y = menu_screen_y + total_menu_h as i32;
     let term_header_bg = if sidebar.hovered_terminal_header {
         COLOR_SIDEBAR_ROW_HOVER
@@ -159,6 +169,7 @@ pub fn render_sidebar(
         TAB_BAR_HEIGHT,
         term_header_bg,
     );
+
     let term_label = if terminal.is_open {
         "[-] TERMINAL"
     } else {
@@ -184,6 +195,7 @@ pub fn render_sidebar(
         1,
         COLOR_SIDEBAR_BORDER,
     );
+
     if sidebar.root_folder.is_some() {
         let root_screen_y = term_screen_y + TAB_BAR_HEIGHT as i32;
         let root_name = sidebar.root_name().unwrap_or_else(|| "FOLDER".to_string());
@@ -193,6 +205,7 @@ pub fn render_sidebar(
             "[+] "
         };
         let root_label = format!("{root_prefix}{root_name}");
+
         if root_screen_y + (TAB_BAR_HEIGHT as i32) > 0 && root_screen_y < screen_h as i32 {
             let is_root_hovered = sidebar.hovered_root_header;
             let root_bg = if is_root_hovered {
@@ -222,9 +235,11 @@ pub fn render_sidebar(
                 COLOR_LINE_NUMBER_ACTIVE,
             );
         }
+
         if sidebar.root_expanded {
             let tree_start_abs = total_menu_h + TAB_BAR_HEIGHT + TAB_BAR_HEIGHT;
             let active_path = tabs.active_tab().and_then(|t| t.buffer.file_path.as_ref());
+
             for (idx, node) in sidebar.nodes.iter().enumerate() {
                 let node_screen_y =
                     (tree_start_abs + idx * SIDEBAR_ROW_HEIGHT) as i32 - sidebar.scroll_y as i32;
@@ -253,6 +268,7 @@ pub fn render_sidebar(
                     SIDEBAR_ROW_HEIGHT,
                     bg,
                 );
+
                 let indent = 12 + (node.depth * 14);
                 let prefix = if node.is_dir {
                     if node.is_expanded {
@@ -283,6 +299,7 @@ pub fn render_sidebar(
             }
         }
     }
+
     if has_sidebar_scroll {
         if let Some((thumb_y, thumb_h)) =
             calc_thumb(total_sidebar_h, screen_h, sidebar.scroll_y, screen_h)

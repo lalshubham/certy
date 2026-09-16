@@ -1,10 +1,8 @@
 pub mod canvas;
-pub mod editor_view;
 pub mod font;
 pub mod layout;
 pub mod overlays;
-pub mod sidebar_view;
-pub mod terminal_view;
+pub mod views;
 
 pub use font::FontManager;
 pub use layout::{compute_layout, ViewportLayout};
@@ -14,13 +12,11 @@ use crate::config::COLOR_BACKGROUND;
 use crate::editor::TabManager;
 use crate::sidebar::Sidebar;
 use crate::terminal::Terminal;
-use editor_view::{render_editor_buffer, render_editor_tabs};
 use overlays::{compute_modal_layout, render_context_menu, render_modal};
-use sidebar_view::render_sidebar;
 use softbuffer::{Context, Surface};
 use std::num::NonZeroU32;
 use std::sync::Arc;
-use terminal_view::render_terminal;
+use views::{render_editor_buffer, render_editor_tabs, render_sidebar, render_terminal};
 use winit::window::Window;
 
 pub struct Renderer {
@@ -109,8 +105,10 @@ impl Renderer {
             .unwrap_or(0);
         let sidebar_w = if sidebar.visible { sidebar.width } else { 0 };
         let layout = self.layout(total_lines, sidebar_w, term_h, find_h + quick_open_h);
+
         let mut frame = self.surface.buffer_mut().expect("Failed to get buffer");
         frame.fill(COLOR_BACKGROUND);
+
         render_sidebar(
             &mut frame,
             &mut self.font_manager,
@@ -120,6 +118,7 @@ impl Renderer {
             screen_w,
             screen_h,
         );
+
         render_editor_tabs(
             &mut frame,
             &mut self.font_manager,
@@ -128,6 +127,7 @@ impl Renderer {
             screen_w,
             screen_h,
         );
+
         render_editor_buffer(
             &mut frame,
             &mut self.font_manager,
@@ -137,6 +137,7 @@ impl Renderer {
             screen_w,
             screen_h,
         );
+
         render_terminal(
             &mut frame,
             &mut self.font_manager,
@@ -145,6 +146,7 @@ impl Renderer {
             screen_w,
             screen_h,
         );
+
         if let Some(modal) = compute_modal_layout(
             tabs,
             screen_w,
@@ -161,6 +163,7 @@ impl Renderer {
                 screen_h,
             );
         }
+
         if let Some(menu) = context_menu {
             render_context_menu(
                 &mut frame,
@@ -172,6 +175,7 @@ impl Renderer {
                 screen_h,
             );
         }
+
         frame.present().expect("Failed to present frame");
     }
 }

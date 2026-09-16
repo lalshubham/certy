@@ -1,10 +1,10 @@
-use super::canvas::{
+use crate::config::*;
+use crate::terminal::Terminal;
+use crate::ui::canvas::{
     draw_close_icon_clipped, draw_solid_rect, draw_solid_rect_clipped, draw_string,
     draw_string_clipped,
 };
-use super::font::FontManager;
-use crate::config::*;
-use crate::terminal::Terminal;
+use crate::ui::font::FontManager;
 use crate::ui::layout::{calc_thumb, ViewportLayout};
 
 pub fn render_terminal(
@@ -22,6 +22,7 @@ pub fn render_terminal(
     let lh = fonts.line_height;
     let term_y = screen_h.saturating_sub(terminal.height);
     let term_w = screen_w.saturating_sub(layout.content_left);
+
     draw_solid_rect(
         frame,
         screen_w,
@@ -32,6 +33,7 @@ pub fn render_terminal(
         1,
         COLOR_SIDEBAR_BORDER,
     );
+
     let tabbar_y = term_y + 1;
     draw_solid_rect(
         frame,
@@ -53,6 +55,7 @@ pub fn render_terminal(
         1,
         COLOR_TAB_BORDER,
     );
+
     let tab_text_offset_y = tabbar_y + (TERMINAL_TAB_BAR_HEIGHT.saturating_sub(lh)) / 2;
     let new_btn_label = "NEW";
     let new_btn_w = new_btn_label.len() * cw + 20;
@@ -81,9 +84,11 @@ pub fn render_terminal(
         TERMINAL_TAB_BAR_HEIGHT - 1,
         COLOR_TAB_BORDER,
     );
+
     let strip_min_x = layout.content_left + new_btn_w;
     let strip_max_x = screen_w;
     let mut cur_x = strip_min_x as i32 - terminal.tab_scroll_x as i32;
+
     for (idx, tab) in terminal.tabs.iter().enumerate() {
         let is_active = idx == terminal.active_idx;
         let is_tab_hovered = terminal.hovered_tab == Some(idx);
@@ -92,9 +97,11 @@ pub fn render_terminal(
         let tab_x0 = cur_x;
         let tab_x1 = cur_x + tw as i32;
         cur_x += tw as i32;
+
         if tab_x1 <= strip_min_x as i32 || tab_x0 >= strip_max_x as i32 {
             continue;
         }
+
         let bg = if is_active {
             COLOR_TAB_ACTIVE_BG
         } else if is_tab_hovered {
@@ -102,6 +109,7 @@ pub fn render_terminal(
         } else {
             COLOR_TABBAR_BG
         };
+
         draw_solid_rect_clipped(
             frame,
             screen_w,
@@ -126,12 +134,14 @@ pub fn render_terminal(
             strip_max_x,
             COLOR_TAB_BORDER,
         );
+
         let text_color = if is_active {
             COLOR_TAB_TEXT_ACTIVE
         } else {
             COLOR_TAB_TEXT_INACTIVE
         };
         let text_clip_max = strip_max_x.min((tab_x1 - 26).max(0) as usize);
+
         draw_string_clipped(
             fonts,
             frame,
@@ -144,6 +154,7 @@ pub fn render_terminal(
             screen_h,
             text_color,
         );
+
         let close_color = if is_close_hovered {
             COLOR_TAB_CLOSE_HOVER
         } else {
@@ -152,6 +163,7 @@ pub fn render_terminal(
         let icon_size = 8;
         let close_x = tab_x1 - 22;
         let close_y = tabbar_y + (TERMINAL_TAB_BAR_HEIGHT.saturating_sub(icon_size)) / 2;
+
         draw_close_icon_clipped(
             frame,
             screen_w,
@@ -164,8 +176,10 @@ pub fn render_terminal(
             close_color,
         );
     }
+
     let shell_y = tabbar_y + TERMINAL_TAB_BAR_HEIGHT;
     let shell_h = screen_h.saturating_sub(shell_y);
+
     draw_solid_rect(
         frame,
         screen_w,
@@ -176,6 +190,7 @@ pub fn render_terminal(
         shell_h,
         0xFF141414,
     );
+
     if let Some(active_tab) = terminal.active_tab() {
         let vbar_x = screen_w.saturating_sub(SCROLLBAR_THICKNESS);
         let track_h = shell_h;
@@ -188,12 +203,14 @@ pub fn render_terminal(
         let text_right = vbar_x;
         let total_term_lines = active_tab.total_lines();
         let start_line = active_tab.scroll_line;
+
         for row in 0..vis_lines {
             let line_idx = start_line + row;
             let py = shell_y + 4 + row * lh;
             if py + lh > screen_h {
                 break;
             }
+
             if let Some(((s_line, s_col), (e_line, e_col))) = active_tab.selection_range() {
                 if line_idx >= s_line && line_idx <= e_line {
                     let text_len = active_tab
@@ -222,6 +239,7 @@ pub fn render_terminal(
                     }
                 }
             }
+
             if let Some(t_row) = active_tab.get_row(line_idx) {
                 for (col_idx, cell) in t_row.cells.iter().enumerate() {
                     let cell_px = text_left as i32 + (col_idx * cw) as i32;
@@ -235,6 +253,7 @@ pub fn render_terminal(
                 }
             }
         }
+
         if active_tab.screen.cursor_visible {
             let active_cursor_row =
                 if active_tab.screen.is_alt || active_tab.screen.scrollback.is_empty() {
@@ -267,6 +286,7 @@ pub fn render_terminal(
                 }
             }
         }
+
         if let Some((ty, th)) =
             calc_thumb(total_term_lines, vis_lines, active_tab.scroll_line, track_h)
         {

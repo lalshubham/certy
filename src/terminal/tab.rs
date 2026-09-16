@@ -47,6 +47,7 @@ impl TerminalTab {
                 pixel_height: 0,
             })
             .expect("Failed to create pty");
+
         let shell = detect_shell();
         let mut cmd = CommandBuilder::new(&shell);
         cmd.cwd(&cwd);
@@ -54,10 +55,12 @@ impl TerminalTab {
         cmd.arg("-l");
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
+
         let child = pair
             .slave
             .spawn_command(cmd)
             .expect("Failed to spawn shell");
+
         let mut reader = pair
             .master
             .try_clone_reader()
@@ -66,6 +69,7 @@ impl TerminalTab {
             .master
             .take_writer()
             .expect("Failed to take pty writer");
+
         let (tx, rx) = channel();
         thread::spawn(move || {
             let mut buf = [0u8; 4096];
@@ -78,6 +82,7 @@ impl TerminalTab {
                 }
             }
         });
+
         Self {
             name,
             cwd,

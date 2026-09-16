@@ -1,9 +1,13 @@
+pub mod recovery;
+
+pub use recovery::{recovery_dir, recovery_file_name};
+
 use crate::editor::TabManager;
 use crate::sidebar::Sidebar;
 use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::io::Write as IoWrite;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 static WINDOW_STATE: Mutex<(f64, f64, bool)> = Mutex::new((1024.0, 768.0, true));
@@ -48,22 +52,8 @@ pub fn session_path() -> Option<PathBuf> {
     }
 }
 
-pub fn recovery_dir() -> Option<PathBuf> {
-    session_path().and_then(|p| p.parent().map(|d| d.join("recovery")))
-}
-
-pub fn recovery_file_name(path: &Path) -> String {
-    let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in path.to_string_lossy().as_bytes() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("{hash:016x}.bak")
-}
-
 pub fn save_session(sidebar: &Sidebar, tabs: &TabManager) {
     let Some(path) = session_path() else { return };
-
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
@@ -141,8 +131,8 @@ pub fn load_session() -> Option<LoadedSession> {
         window_height: None,
         window_maximized: None,
     };
-    let mut current_tab: Option<LoadedTab> = None;
 
+    let mut current_tab: Option<LoadedTab> = None;
     for line in content.lines() {
         if let Some(w) = line.strip_prefix("sidebar_width:") {
             session.sidebar_width = w.parse().ok();

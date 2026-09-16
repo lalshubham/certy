@@ -1,9 +1,7 @@
 pub const WINDOW_MIN_WIDTH: f64 = 480.0;
 pub const WINDOW_MIN_HEIGHT: f64 = 260.0;
-
 pub const FONT_SIZE: f32 = 16.0;
 pub const LINE_SPACING: usize = 2;
-
 pub const TAB_BAR_HEIGHT: usize = 34;
 pub const TERMINAL_TAB_BAR_HEIGHT: usize = 30;
 pub const SIDEBAR_INITIAL_WIDTH: usize = 230;
@@ -14,7 +12,6 @@ pub const GUTTER_PADDING: usize = 12;
 pub const CODE_LEFT_MARGIN: usize = 14;
 pub const SCROLLBAR_THICKNESS: usize = 14;
 pub const MIN_THUMB_SIZE: usize = 28;
-
 pub const WHEEL_SCROLL_SPEED: f32 = 5.0;
 pub const TOUCHPAD_SCROLL_SPEED: f64 = 5.0;
 
@@ -26,7 +23,6 @@ pub const COLOR_GUTTER_BACKGROUND: u32 = 0xFF141414;
 pub const COLOR_GUTTER_SEPARATOR: u32 = 0xFF2B2B2B;
 pub const COLOR_LINE_NUMBER_MUTED: u32 = 0xFF5A5A5A;
 pub const COLOR_LINE_NUMBER_ACTIVE: u32 = 0xFFC6C6C6;
-
 pub const COLOR_SCROLLBAR_TRACK: u32 = 0xFF141414;
 pub const COLOR_SCROLLBAR_THUMB: u32 = 0xFF424242;
 
